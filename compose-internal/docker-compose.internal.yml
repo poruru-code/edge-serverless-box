@@ -1,0 +1,148 @@
+# 内部用Composeファイル
+# すべての子コンテナ(Lambda関数、S3互換ストレージ、DB)の構成を定義
+# データ永続化: 親からマウントされた /data ディレクトリを基準に設定
+#
+# データの流れ:
+# [子コンテナ内のパス] -> [Gatewayコンテナ内のパス] -> [ホストOSのパス]
+
+services:
+  # ============================================
+  # RustFS ボリューム権限修正ヘルパー
+  # (RustFSはUID 10001で実行されるため、起動前に権限を修正)
+  # ============================================
+  s3-storage-permission-helper:
+    image: alpine
+    container_name: onpre-storage-permission-helper
+    volumes:
+      - /data/s3_storage:/data
+    command: >
+      sh -c "
+        chown -R 10001:10001 /data &&
+        echo 'RustFS volume permissions fixed' &&
+        exit 0
+      "
+    restart: "no"
+
+  # ============================================
+  # S3互換ストレージ (RustFS)
+  # ============================================
+  s3-storage:
+    image: rustfs/rustfs:latest
+    container_name: onpre-storage
+    depends_on:
+      s3-storage-permission-helper:
+        condition: service_completed_successfully
+    ports:
+      - "9000:9000"  # S3互換API
+      - "9001:9001"  # 管理コンソール
+    volumes:
+      - /data/s3_storage:/data/rustfs
+      - ${RUSTFS_LIFECYCLE_POLICY_PATH:-/app/config/lifecycle.yml}:/app/config/lifecycle.yml:ro
+    environment:
+      - RUSTFS_VOLUMES=/data/rustfs
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
+      - RUSTFS_DEDUPLICATION=${RUSTFS_DEDUPLICATION:-true}
+      - RUSTFS_COMPRESSION=${RUSTFS_COMPRESSION:-auto}
+      - RUSTFS_LIFECYCLE_POLICY_PATH=/app/config/lifecycle.yml  # コンテナ内パス固定
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ============================================
+  # ScyllaDB ボリューム権限修正ヘルパー
+  # (ScyllaDBは特定のUIDで実行されるため、起動前に権限を修正)
+  # ============================================
+  database-permission-helper:
+    image: alpine
+    container_name: onpre-database-permission-helper
+    volumes:
+      - /data/scylladb:/data
+    command: >
+      sh -c "
+        chmod -R 777 /data &&
+        echo 'ScyllaDB volume permissions fixed' &&
+        exit 0
+      "
+    restart: "no"
+
+  # ============================================
+  # DynamoDB互換データベース (ScyllaDB Alternator)
+  # ============================================
+  database:
+    image: scylladb/scylla:latest
+    container_name: ${SCYLLADB_HOST:-onpre-database}
+    depends_on:
+      database-permission-helper:
+        condition: service_completed_successfully
+    ports:
+      - "${SCYLLADB_PORT:-8001}:8000"  # Alternator API (外部ポート指定可能に)
+    volumes:
+      - ${SCYLLADB_DATA_PATH:-/data/scylladb}:/var/lib/scylla
+    # 開発モードで起動し、DynamoDB互換API (Alternator) を有効化
+    command: --smp 1 --memory ${SCYLLADB_MEMORY:-1}G --developer-mode 1 --alternator-port 8000
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # Lambda関数: S3テスト
+  # ============================================
+  lambda-s3-test:
+    image: lambda-s3-test:latest
+    container_name: lambda-s3-test
+    environment:
+      - S3_ENDPOINT=http://onpre-storage:9000
+      - RUSTFS_ROOT_USER=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_ROOT_PASSWORD=${RUSTFS_SECRET_KEY:-rustfsadmin}
+      - LOCAL_LAMBDA_ENV=${LOCAL_LAMBDA_ENV:-true}
+    depends_on:
+      s3-storage:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================
+  # Lambda関数: Hello
+  # ============================================
+  lambda-hello:
+    image: lambda-hello:latest
+    container_name: lambda-hello
+    environment:
+      - LOCAL_LAMBDA_ENV=${LOCAL_LAMBDA_ENV:-true}
+    restart: unless-stopped
+
+  # ============================================
+  # VictoriaLogs (ログ集約)
+  # CloudWatch Logs代替として使用
+  # ============================================
+  victorialogs:
+    image: victoriametrics/victoria-logs:latest
+    container_name: victorialogs
+    ports:
+      - "9428:9428"
+    volumes:
+      - /data/victorialogs:/victoria-logs-data
+    command:
+      - "-storageDataPath=/victoria-logs-data"
+      - "-retentionPeriod=7d"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9428/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  default:
+    name: onpre-internal-network

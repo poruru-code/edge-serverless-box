@@ -1,0 +1,18 @@
+# ルーティング定義ファイル
+# Gateway起動時に読み込み、メモリにキャッシュされる
+
+routes:
+  # S3テスト用Lambda
+  - path: "/api/s3/test"
+    method: "POST"
+    target_container: "lambda-s3-test"
+  
+  # Hello Lambda
+  - path: "/api/hello"
+    method: "POST"
+    target_container: "lambda-hello"
+  
+  # パスパラメータの例
+  # - path: "/api/users/{user_id}"
+  #   method: "GET"
+  #   target_container: "lambda-user-get"

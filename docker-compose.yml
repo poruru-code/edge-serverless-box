@@ -1,0 +1,47 @@
+# 【A】ホストOSで実行するComposeファイル（Gatewayコンテナを起動）
+# 本番環境ではこのファイルを使用してGatewayコンテナを起動する
+
+services:
+  # ============================================
+  # Gatewayコンテナ（DinD環境）
+  # ============================================
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: onpre-gateway
+    privileged: true  # DinDに必要
+    ports:
+      - "8000:8000"    # Lambda Gateway API
+      - "9000:9000"    # RustFS S3互換API (内部から転送)
+      - "9001:9001"    # RustFS 管理コンソール (内部から転送)
+      - "8001:8000"    # ScyllaDB Alternator (内部から転送)
+      - "9428:9428"    # VictoriaLogs Web UI
+    volumes:
+      # データ永続化（ホストOS → Gatewayコンテナ → 子コンテナ）
+      - ./data:/data
+      # ログ集約
+      - ./logs:/logs
+      # SSL証明書（ホストから共有、または自動生成先）
+      - ./certs:/app/config/ssl
+    environment:
+      - JWT_SECRET_KEY=dev-secret-key-change-in-production
+      - X_API_KEY=dev-api-key-change-in-production
+      # RustFS設定 (内部コンテナへパススルー)
+      - RUSTFS_ACCESS_KEY=fsadmin
+      - RUSTFS_SECRET_KEY=fsadmin
+      # ローカル環境フラグ (Lambda Layerのログ出力先切り替え用)
+      - LOCAL_LAMBDA_ENV=true
+    networks:
+      - onpre_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  onpre_network:
+    name: onpre-network
+    driver: bridge
