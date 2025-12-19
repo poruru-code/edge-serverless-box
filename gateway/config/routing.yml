@@ -11,6 +11,11 @@ routes:
   - path: "/api/hello"
     method: "POST"
     target_container: "lambda-hello"
+
+  # ScyllaDB Test Lambda
+  - path: "/api/scylla/test"
+    method: "POST"
+    target_container: "lambda-scylla-test"
   
   # パスパラメータの例
   # - path: "/api/users/{user_id}"

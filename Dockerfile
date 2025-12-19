@@ -22,6 +22,7 @@ COPY docker-compose.yml /app/docker-compose.yml
 # 親コンテナ起動時に内部でビルドするか、loadする必要がある。
 # 簡略化のため、Gatewayのコードもコピーしておく
 COPY gateway/ /app/gateway/
+COPY lambda_functions/ /app/lambda_functions/
 COPY pyproject.toml /app/
 
 # エントリーポイントスクリプト

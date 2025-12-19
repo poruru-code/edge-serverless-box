@@ -117,6 +117,52 @@ class TestE2E:
         data = response.json()
         assert data["success"] is True
         assert data["user"] == config.AUTH_USER
+    
+    def test_scylla_integration(self, gateway_health):
+        """E2E: ScyllaDB連携テスト"""
+        token = get_auth_token()
+        
+        # ScyllaDBの起動待ち（Lambdaが起動するまでリトライ）
+        max_retries = 20
+        for i in range(max_retries):
+            try:
+                response = requests.post(
+                    f"{GATEWAY_URL}/api/scylla/test",
+                    json={"action": "test"},
+                    headers={"Authorization": f"Bearer {token}"},
+                    verify=VERIFY_SSL
+                )
+                
+                if response.status_code == 200:
+                    break
+                
+                print(f"Status: {response.status_code}, Body: {response.text}")
+                
+                # 500 (Application Error/DB Not Ready) or 502 (Bad Gateway) -> Retry
+                if response.status_code not in [500, 502, 503, 504]:
+                    break
+
+            except requests.exceptions.ConnectionError:
+                print(f"Connection error (Gateway restarting?)... ({i+1}/{max_retries})")
+                response = None # Reset response
+            
+            print(f"Waiting for Lambda/ScyllaDB... ({i+1}/{max_retries})")
+            time.sleep(5)
+        
+        if response is None:
+             pytest.fail("Lambda integration failed: No response received")
+
+        if response.status_code != 200:
+             print(f"Final Failure Response: {response.text}")
+
+        assert response.status_code == 200
+        data = response.json()
+        print(f"Response Data: {data}")
+        assert data["success"] is True
+        assert "item_id" in data
+        assert "retrieved_item" in data
+        assert data["retrieved_item"]["id"]["S"] == data["item_id"]
+
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+export DOCKER_BUILDKIT=0
 
 echo "Starting Docker daemon..."
 # Docker daemonをバックグラウンドで起動
@@ -21,7 +22,7 @@ echo "Docker daemon started successfully"
 
 # Gatewayイメージのビルド (内部で実行)
 echo "Building Gateway image..."
-docker build -t my-gateway-api:latest -f gateway/Dockerfile.app .
+docker build --no-cache -t my-gateway-api:latest -f gateway/Dockerfile.app .
 
 # Lambda関数イメージをロード
 echo "Loading Lambda function images..."
@@ -36,8 +37,15 @@ echo "Image loading/building completed"
 docker images
 
 # 内部用Composeで全コンテナを起動
-echo "Starting internal services..."
+echo "Building internal images sequentially..."
 cd /app
+docker build -t lambda-hello:latest -f lambda_functions/hello/Dockerfile .
+docker build -t lambda-s3-test:latest -f lambda_functions/s3-test/Dockerfile .
+docker build -t lambda-scylla-test:latest -f lambda_functions/scylla-test/Dockerfile .
+# Gateway image is already built above, but let's ensure consistency if needed? 
+# Actually gateway/Dockerfile.app is built at line 23.
+
+echo "Starting internal services..."
 docker compose -f docker-compose.yml up -d
 
 # ログを表示して待機（コンテナ終了を防ぐ）

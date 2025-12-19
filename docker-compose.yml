@@ -64,12 +64,13 @@ services:
       - "8001:8000"    # Alternator API (Host 8001 -> Container 8000)
     volumes:
       - ./data/scylladb:/var/lib/scylla
-    command: --smp 1 --memory ${SCYLLADB_MEMORY:-1}G --developer-mode 1 --alternator-port 8000
+    command: --smp 1 --memory ${SCYLLADB_MEMORY:-1}G --developer-mode 1 --alternator-port 8000 --alternator-write-isolation always_use_lwt
     healthcheck:
-      test: ["CMD-SHELL", "nodetool status"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
     restart: unless-stopped
 
   # ============================================
@@ -98,8 +99,8 @@ services:
   gateway:
     image: my-gateway-api:latest
     build:
-      context: ./gateway
-      dockerfile: Dockerfile.app
+      context: .
+      dockerfile: gateway/Dockerfile.app
     container_name: onpre-gateway
     ports:
       - "8000:8000"    # Gateway API
@@ -107,8 +108,6 @@ services:
       - UVICORN_BIND_ADDR=0.0.0.0:8000
       - SCYLLADB_HOST=onpre-database
       - SCYLLADB_PORT=8000
-      - RUSTFS_ROOT_USER=${RUSTFS_ACCESS_KEY:-rustfsadmin}
-      - RUSTFS_ROOT_PASSWORD=${RUSTFS_SECRET_KEY:-rustfsadmin}
     depends_on:
       - database
       - s3-storage
@@ -137,4 +136,16 @@ services:
     build:
       context: ./lambda_functions/hello
     container_name: lambda-hello
+    restart: unless-stopped
+
+  lambda-scylla-test:
+    image: lambda-scylla-test:latest
+    build:
+      context: .
+      dockerfile: lambda_functions/scylla-test/Dockerfile
+    container_name: lambda-scylla-test
+    environment:
+      - DYNAMODB_ENDPOINT=http://onpre-database:8000
+    depends_on:
+      - database
     restart: unless-stopped

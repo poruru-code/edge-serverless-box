@@ -60,8 +60,6 @@ class GatewayConfig(BaseModel):
     )
 
     # RustFS設定 (パススルー用ドキュメント)
-    RUSTFS_ROOT_USER: str = Field(default="rustfsadmin", description="RustFS管理者ユーザ")
-    RUSTFS_ROOT_PASSWORD: str = Field(default="rustfsadmin", description="RustFS管理者パスワード")
     RUSTFS_DEDUPLICATION: bool = Field(default=True, description="重複排除有効化")
     RUSTFS_COMPRESSION: str = Field(default="auto", description="圧縮モード")
     RUSTFS_LIFECYCLE_POLICY_PATH: str = Field(
