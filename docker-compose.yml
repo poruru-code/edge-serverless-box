@@ -118,6 +118,8 @@ services:
       - SSL_KEY_PATH=/app/config/ssl/server.key
       - MANAGER_URL=http://onpre-manager:8081
       - GATEWAY_INTERNAL_URL=https://onpre-gateway
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-in-production}
+      - X_API_KEY=${X_API_KEY:-dev-api-key-change-in-production}
     depends_on:
       manager:
         condition: service_started

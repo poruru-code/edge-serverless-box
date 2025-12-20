@@ -26,9 +26,7 @@ class GatewayConfig(BaseModel):
     LOGS_ROOT_PATH: str = Field(default="/logs", description="ログ集約先のルートパス")
 
     # 認証・セキュリティ
-    JWT_SECRET_KEY: str = Field(
-        default="dev-secret-key-change-in-production", description="JWT署名用シークレット"
-    )
+    JWT_SECRET_KEY: str = Field(..., description="JWT署名用シークレット (必須)")
     JWT_EXPIRES_DELTA: int = Field(default=3600, description="JWTトークン有効期間(秒)")
     # App Settings
     app_host: str = "0.0.0.0"
@@ -40,9 +38,7 @@ class GatewayConfig(BaseModel):
     AUTH_ENDPOINT_PATH: str = Field(
         default="/user/auth/ver1.0", description="内部認証エンドポイントパス"
     )
-    X_API_KEY: str = Field(
-        default="dev-api-key-change-in-production", description="Gateway認証用APIキー"
-    )
+    X_API_KEY: str = Field(..., description="Gateway認証用APIキー (必須)")
 
     # RustFS設定 (パススルー用ドキュメント)
     RUSTFS_DEDUPLICATION: bool = Field(default=True, description="重複排除有効化")

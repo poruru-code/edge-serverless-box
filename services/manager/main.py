@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
     try:
         await run_in_threadpool(manager.prune_managed_containers)
     except Exception as e:
-        logger.error(f"Failed to prune containers on startup: {e}")
+        logger.error(f"Failed to prune containers on startup: {e}", exc_info=True)
 
     # Start background scheduler for idle cleanup
     scheduler = BackgroundScheduler()

@@ -109,8 +109,10 @@ class ContainerManager:
                     to_remove.append(name)
                 except docker.errors.NotFound:
                     to_remove.append(name)
+                except docker.errors.APIError as e:
+                    logger.error(f"Docker API error while stopping {name}: {e}")
                 except Exception as e:
-                    logger.error(f"Failed to stop {name}: {e}")
+                    logger.error(f"Unexpected error stopping {name}: {e}", exc_info=True)
 
         for name in to_remove:
             del self.last_accessed[name]
@@ -131,7 +133,13 @@ class ContainerManager:
                     if container.status == "running":
                         container.kill()
                     container.remove(force=True)
+                except docker.errors.APIError as e:
+                    logger.error(f"Docker API error while removing zombie {container.name}: {e}")
                 except Exception as e:
-                    logger.warning(f"Failed to remove {container.name}: {e}")
+                    logger.error(
+                        f"Unexpected error removing zombie {container.name}: {e}", exc_info=True
+                    )
+        except docker.errors.APIError as e:
+            logger.error(f"Failed to list containers for pruning: {e}")
         except Exception as e:
-            logger.error(f"Failed to prune containers: {e}")
+            logger.error(f"Failed to prune containers: {e}", exc_info=True)

@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from typing import Optional
 from datetime import datetime, timezone
 import httpx
-
+import logging
 from .config import config
 from .core.security import create_access_token, verify_token
 from .core.proxy import build_event, proxy_to_lambda, parse_lambda_response
@@ -19,6 +19,10 @@ from .models.schemas import AuthRequest, AuthResponse, AuthenticationResult
 from .services.route_matcher import load_routing_config, match_route
 from .client import get_lambda_host
 from .services.function_registry import load_functions_config
+
+# Logger setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("gateway.main")
 
 
 @asynccontextmanager
@@ -157,7 +161,7 @@ async def gateway_handler(request: Request, path: str):
             env=function_config.get("environment", {}),
         )
     except Exception as e:
-        print(f"Container start failed: {e}")
+        logger.error(f"Failed to ensure container {target_container}: {e}", exc_info=True)
         return JSONResponse(
             status_code=503,
             content={"message": "Service Unavailable", "detail": "Cold start failed"},
