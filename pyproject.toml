@@ -17,7 +17,6 @@ dependencies = [
     
     # JWT認証
     "pyjwt>=2.8.0",
-    "python-jose[cryptography]>=3.3.0",
     
     # データベース (ScyllaDB / Cassandra互換)
     # cassandra-driverはGatewayでは未使用、ビルド短縮のため削除
