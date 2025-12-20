@@ -147,3 +147,4 @@ AWS SDK等からは `http://localhost:9000` をエンドポイントとして指
 - [システム仕様書](docs/spec.md)
 - [クライアント認証仕様](docs/client-auth-spec.md)
 - [ログ収集アダプター](docs/local-logging-adapter.md)
+- [ネットワーク解決の最適化（IPベース）](docs/network-optimization.md)
