@@ -8,18 +8,13 @@ RUN pip install --no-cache-dir uv
 # Copy dependencies
 COPY pyproject.toml /app/
 
+# Install dependencies (Cache layer)
+RUN uv pip install --system --break-system-packages "fastapi" "uvicorn[standard]" "requests" "httpx" "pyjwt" "respx" "pyyaml" "pydantic" "pydantic-settings" "python-json-logger" "python-dotenv"
+
 # Copy services code
 COPY services/gateway /app/services/gateway
-# We need namespace packages? services/__init__.py might need to exist if we import services...
-# But imports inside services/gateway use relative imports from ., so it's a package.
-# If we run uvicorn services.gateway.main:app, we need services folder in pythonpath.
-# COPY puts it in /app/services/gateway. So /app is pythonpath.
-
 # Copy Config
 COPY config /app/config
-
-# Install dependencies
-RUN uv pip install --system --break-system-packages "fastapi" "uvicorn[standard]" "requests" "httpx" "pyjwt" "respx" "pyyaml" "pydantic" "pydantic-settings" "python-json-logger" "python-dotenv"
 
 EXPOSE 443
 
