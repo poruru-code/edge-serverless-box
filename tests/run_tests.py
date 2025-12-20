@@ -8,6 +8,7 @@ Windows/Linux/macOS で動作します。
 Usage:
     python tests/run_tests.py [--build] [--cleanup] [--dind]
 """
+
 import argparse
 import socket
 import subprocess
@@ -48,52 +49,54 @@ def get_local_ip() -> str:
 def generate_ssl_certificate():
     """自己署名SSL証明書を生成 (SAN対応)"""
     import ipaddress
-    
+
     cert_file = CERTS_DIR / "server.crt"
     key_file = CERTS_DIR / "server.key"
-    
+
     if cert_file.exists() and key_file.exists():
         print("Using existing SSL certificates")
         return
-    
+
     print("Generating self-signed SSL certificate with SAN...")
-    
+
     from cryptography import x509
     from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    
+
     # RSA秘密鍵を生成
     private_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=4096,
     )
-    
+
     # SAN (Subject Alternative Name) を構築
     hostname = socket.gethostname()
     local_ip = get_local_ip()
-    
+
     san_list = [
         x509.DNSName("localhost"),
         x509.DNSName(hostname),
         x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
     ]
-    
+
     # ローカルIPが127.0.0.1でなければ追加
     if local_ip != "127.0.0.1":
         san_list.append(x509.IPAddress(ipaddress.IPv4Address(local_ip)))
-    
+
     print(f"  SAN: localhost, {hostname}, 127.0.0.1, {local_ip}")
-    
+
     # 証明書を構築
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Development"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
-    ])
-    
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Development"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+        ]
+    )
+
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -116,22 +119,24 @@ def generate_ssl_certificate():
         )
         .sign(private_key, hashes.SHA256())
     )
-    
+
     # ディレクトリ作成
     CERTS_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # 証明書を保存
     with open(cert_file, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
-    
+
     # 秘密鍵を保存
     with open(key_file, "wb") as f:
-        f.write(private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        ))
-    
+        f.write(
+            private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
+
     print(f"  Certificate saved to: {cert_file}")
     print(f"  Private key saved to: {key_file}")
 
@@ -140,6 +145,7 @@ def check_gateway_health() -> bool:
     """Gatewayのヘルスチェック"""
     try:
         import requests
+
         response = requests.get(f"{GATEWAY_URL}/health", timeout=5, verify=False)
         return response.status_code == 200
     except Exception:
@@ -149,14 +155,14 @@ def check_gateway_health() -> bool:
 def wait_for_gateway() -> bool:
     """Gatewayの起動を待機"""
     print("[3/4] Waiting for Gateway to be ready...")
-    
+
     for i in range(1, MAX_RETRIES + 1):
         if check_gateway_health():
             print("Gateway is ready!")
             return True
         print(f"Waiting for Gateway... ({i}/{MAX_RETRIES})")
         time.sleep(RETRY_INTERVAL)
-    
+
     print("Error: Gateway failed to start within timeout.")
     return False
 
@@ -164,13 +170,13 @@ def wait_for_gateway() -> bool:
 def start_containers(build: bool = False, dind: bool = False):
     """Docker Composeでコンテナを起動"""
     print("[2/4] Starting containers...")
-    
+
     compose_file = "docker-compose.dind.yml" if dind else "docker-compose.yml"
     cmd = ["docker", "compose", "-f", compose_file, "up", "-d"]
-    
+
     if build:
         cmd.append("--build")
-    
+
     run_command(cmd)
 
 
@@ -179,27 +185,27 @@ def stop_containers(dind: bool = False):
     print("Cleaning up containers...")
 
     # オンデマンド Lambda コンテナを動的に検索して停止・削除
-    # ネットワークに接続されている lambda-* コンテナを検索
+    # 末尾が 'onpre-internal-network' で終わるネットワークから lambda-* コンテナを検索
     try:
         import docker
 
         client = docker.from_env()
-        network_name = "sample-dind-lambda_onpre-internal-network"
-        try:
-            network = client.networks.get(network_name)
-            # ネットワークに接続中のコンテナを取得
-            network.reload()
-            containers = network.attrs.get("Containers", {})
-            for container_id, info in containers.items():
-                name = info.get("Name", "")
-                if name.startswith("lambda-"):
-                    print(f"  Removing Lambda container: {name}")
-                    try:
-                        client.containers.get(name).remove(force=True)
-                    except Exception:
-                        pass
-        except docker.errors.NotFound:
-            pass  # ネットワークが存在しない場合はスキップ
+
+        # 動的にネットワークを検索
+        for network in client.networks.list():
+            if network.name.endswith("onpre-internal-network"):
+                print(f"  Found internal network: {network.name}")
+                network.reload()
+                containers = network.attrs.get("Containers", {})
+                for container_id, info in containers.items():
+                    name = info.get("Name", "")
+                    if name.startswith("lambda-"):
+                        print(f"  Removing Lambda container: {name}")
+                        try:
+                            client.containers.get(name).remove(force=True)
+                        except Exception:
+                            pass
+                break
     except ImportError:
         # docker パッケージがない場合はフォールバック
         pass
@@ -215,11 +221,9 @@ def stop_containers(dind: bool = False):
 def run_tests() -> int:
     """pytestでE2Eテストを実行"""
     print("[4/4] Running E2E tests...")
-    
+
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/test_e2e.py", "-v"],
-        cwd=PROJECT_ROOT,
-        check=False
+        [sys.executable, "-m", "pytest", "tests/test_e2e.py", "-v"], cwd=PROJECT_ROOT, check=False
     )
     return result.returncode
 
@@ -228,63 +232,53 @@ def main():
     # 警告を抑制
     import warnings
     import urllib3
+
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     warnings.filterwarnings("ignore", category=DeprecationWarning)
-    
-    parser = argparse.ArgumentParser(
-        description="Sample DinD Lambda E2E Test Runner"
-    )
+
+    parser = argparse.ArgumentParser(description="Sample DinD Lambda E2E Test Runner")
+    parser.add_argument("--build", action="store_true", help="Rebuild images before running tests")
+    parser.add_argument("--cleanup", action="store_true", help="Stop containers after tests")
     parser.add_argument(
-        "--build",
-        action="store_true",
-        help="Rebuild images before running tests"
+        "--dind", action="store_true", help="Use DinD mode (docker-compose.dind.yml)"
     )
-    parser.add_argument(
-        "--cleanup",
-        action="store_true",
-        help="Stop containers after tests"
-    )
-    parser.add_argument(
-        "--dind",
-        action="store_true",
-        help="Use DinD mode (docker-compose.dind.yml)"
-    )
-    
+
     args = parser.parse_args()
-    
+
     print("=== Sample DinD Lambda E2E Test Runner ===")
     print(f"Project Root: {PROJECT_ROOT}")
     print(f"Options: build={args.build}, cleanup={args.cleanup}, dind={args.dind}")
     print()
-    
+
     try:
         # SSL証明書生成
         print("[1/4] Checking SSL certificates...")
         import ipaddress  # noqa: F401 - used in generate_ssl_certificate
+
         generate_ssl_certificate()
-        
+
         # コンテナ起動
         start_containers(build=args.build, dind=args.dind)
-        
+
         # ヘルスチェック待機
         if not wait_for_gateway():
             # ログを表示
             compose_file = "docker-compose.dind.yml" if args.dind else "docker-compose.yml"
             run_command(["docker", "compose", "-f", compose_file, "logs"], check=False)
             return 1
-        
+
         # テスト実行
         exit_code = run_tests()
-        
+
         # 結果表示
         print()
         if exit_code == 0:
             print("🎉 Tests passed successfully!")
         else:
             print("❌ Tests failed.")
-        
+
         return exit_code
-    
+
     finally:
         # クリーンアップ
         if args.cleanup:
@@ -293,4 +287,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

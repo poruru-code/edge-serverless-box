@@ -1,29 +1,29 @@
 """
 E2Eテスト: HTTP → FastAPI → Lambda RIE 統合テスト
 
-docker-compose.ymlでGatewayコンテナ（DinD環境）を起動し、
+docker compose でGatewayコンテナ（DinD環境）を起動し、
 外部HTTPリクエストで完全なフローをテストします。
 
 前提条件:
-- docker-compose up -d gateway でGatewayを起動済み
+- docker compose up -d gateway でGatewayを起動済み
 - 内部でLambda RIE + RustFSが自動起動
 
 テストフロー:
 1. 認証（/user/auth/v1）
 2. ルーティング経由でLambda呼び出し（/api/s3/test）
 """
-import pytest
-import warnings
+
 import os
-import requests
 import time
 
+import pytest
+import requests
 import urllib3
+
+from gateway.app.config import config
 
 # 自己署名証明書の警告を抑制
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-from gateway.app.config import config
 
 # テスト用設定
 GATEWAY_URL = os.getenv("GATEWAY_URL", "https://localhost:443")
@@ -41,23 +41,20 @@ def gateway_health():
                 return True
             print(f"Gateway returned status: {response.status_code}")
         except Exception as e:
-            print(f"Waiting for Gateway... ({i+1}/10) Error: {e}")
+            print(f"Waiting for Gateway... ({i + 1}/10) Error: {e}")
             time.sleep(3)
-    pytest.skip(f"Gateway is not running on {GATEWAY_URL}. Start with: docker compose up -d gateway")
+    pytest.skip(
+        f"Gateway is not running on {GATEWAY_URL}. Start with: docker compose up -d gateway"
+    )
 
 
 def get_auth_token() -> str:
     """認証してトークンを取得"""
     response = requests.post(
         f"{GATEWAY_URL}{config.AUTH_ENDPOINT_PATH}",
-        json={
-            "AuthParameters": {
-                "USERNAME": config.AUTH_USER,
-                "PASSWORD": config.AUTH_PASS
-            }
-        },
+        json={"AuthParameters": {"USERNAME": config.AUTH_USER, "PASSWORD": config.AUTH_PASS}},
         headers={"x-api-key": API_KEY},
-        verify=VERIFY_SSL
+        verify=VERIFY_SSL,
     )
     assert response.status_code == 200, f"Auth failed: {response.text}"
     return response.json()["AuthenticationResult"]["IdToken"]
@@ -65,28 +62,26 @@ def get_auth_token() -> str:
 
 class TestE2E:
     """E2E統合テスト: HTTP → FastAPI → Lambda RIE"""
-    
+
     def test_health(self, gateway_health):
         """E2E: ヘルスチェック"""
         response = requests.get(f"{GATEWAY_URL}/health", verify=VERIFY_SSL)
         assert response.status_code == 200
         assert response.json()["status"] == "healthy"
-    
+
     def test_auth(self, gateway_health):
         """E2E: 認証フロー"""
         token = get_auth_token()
         assert token is not None
         assert len(token) > 0
-    
+
     def test_routing_401(self, gateway_health):
         """E2E: 認証なし → 401"""
         response = requests.post(
-            f"{GATEWAY_URL}/api/s3/test",
-            json={"action": "test"},
-            verify=VERIFY_SSL
+            f"{GATEWAY_URL}/api/s3/test", json={"action": "test"}, verify=VERIFY_SSL
         )
         assert response.status_code == 401
-    
+
     def test_routing_404(self, gateway_health):
         """E2E: 存在しないルート → 404"""
         token = get_auth_token()
@@ -94,34 +89,34 @@ class TestE2E:
             f"{GATEWAY_URL}/api/nonexistent",
             json={"action": "test"},
             headers={"Authorization": f"Bearer {token}"},
-            verify=VERIFY_SSL
+            verify=VERIFY_SSL,
         )
         assert response.status_code == 404
-    
+
     def test_lambda_invocation(self, gateway_health):
         """E2E: 認証 → ルーティング → Lambda呼び出し"""
         token = get_auth_token()
-        
+
         response = requests.post(
             f"{GATEWAY_URL}/api/s3/test",
             json={"action": "test"},
             headers={"Authorization": f"Bearer {token}"},
-            verify=VERIFY_SSL
+            verify=VERIFY_SSL,
         )
-        
+
         # Lambda RIEが起動していない場合は502になる可能性がある
         if response.status_code == 502:
             pytest.skip("Lambda RIE not available in Gateway container")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
         assert data["user"] == config.AUTH_USER
-    
+
     def test_scylla_integration(self, gateway_health):
         """E2E: ScyllaDB連携テスト"""
         token = get_auth_token()
-        
+
         # ScyllaDBの起動待ち（Lambdaが起動するまでリトライ）
         # WindowsのDocker Desktop (WSL2) ではScyllaDBの起動に3-5分かかる場合がある
         max_retries = 40
@@ -131,30 +126,30 @@ class TestE2E:
                     f"{GATEWAY_URL}/api/scylla/test",
                     json={"action": "test"},
                     headers={"Authorization": f"Bearer {token}"},
-                    verify=VERIFY_SSL
+                    verify=VERIFY_SSL,
                 )
-                
+
                 if response.status_code == 200:
                     break
-                
+
                 print(f"Status: {response.status_code}, Body: {response.text}")
-                
+
                 # 500 (Application Error/DB Not Ready) or 502 (Bad Gateway) -> Retry
                 if response.status_code not in [500, 502, 503, 504]:
                     break
 
             except requests.exceptions.ConnectionError:
-                print(f"Connection error (Gateway restarting?)... ({i+1}/{max_retries})")
-                response = None # Reset response
-            
-            print(f"Waiting for Lambda/ScyllaDB... ({i+1}/{max_retries})")
+                print(f"Connection error (Gateway restarting?)... ({i + 1}/{max_retries})")
+                response = None  # Reset response
+
+            print(f"Waiting for Lambda/ScyllaDB... ({i + 1}/{max_retries})")
             time.sleep(5)
-        
+
         if response is None:
-             pytest.fail("Lambda integration failed: No response received")
+            pytest.fail("Lambda integration failed: No response received")
 
         if response.status_code != 200:
-             print(f"Final Failure Response: {response.text}")
+            print(f"Final Failure Response: {response.text}")
 
         assert response.status_code == 200
         data = response.json()
@@ -163,7 +158,6 @@ class TestE2E:
         assert "item_id" in data
         assert "retrieved_item" in data
         assert data["retrieved_item"]["id"]["S"] == data["item_id"]
-
 
 
 if __name__ == "__main__":

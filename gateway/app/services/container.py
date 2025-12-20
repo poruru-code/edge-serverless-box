@@ -12,6 +12,8 @@ import os
 from typing import Dict, Optional
 
 
+import socket
+
 logger = logging.getLogger("gateway.container_manager")
 
 
@@ -27,11 +29,41 @@ class ContainerManager:
         """
         Args:
             network: コンテナを接続するDockerネットワーク名
-                     省略時は環境変数 DOCKER_NETWORK から取得
+                     省略時は自動検出（Gateway接続ネットワークから特定）
         """
         self.client = docker.from_env()
-        self.network = network or os.environ.get("DOCKER_NETWORK", "bridge")
         self.last_accessed: Dict[str, float] = {}
+
+        # ネットワークの動的解決
+        self.network = network or os.environ.get("DOCKER_NETWORK") or self._resolve_network()
+        logger.info(f"ContainerManager initialized with network: {self.network}")
+
+    def _resolve_network(self) -> str:
+        """
+        自分自身(Gateway)が接続しているネットワークから、
+        Lambda用の内部ネットワーク名を動的に特定する
+
+        Dockerコンテナ内ではホスト名=短縮コンテナID
+        """
+        try:
+            hostname = socket.gethostname()
+            self_container = self.client.containers.get(hostname)
+
+            networks = self_container.attrs.get("NetworkSettings", {}).get("Networks", {})
+
+            # 末尾が 'onpre-internal-network' で終わるネットワークを探す
+            for net_name in networks.keys():
+                if net_name.endswith("onpre-internal-network"):
+                    logger.info(f"Auto-detected internal network: {net_name}")
+                    return net_name
+
+            # 見つからない場合はデフォルト
+            logger.warning("Could not auto-detect internal network. Using 'bridge'.")
+            return "bridge"
+
+        except Exception as e:
+            logger.warning(f"Failed to resolve network dynamically: {e}. Using 'bridge'.")
+            return "bridge"
 
     def ensure_container_running(
         self, name: str, image: Optional[str] = None, env: Optional[Dict[str, str]] = None

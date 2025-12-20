@@ -116,7 +116,7 @@ services:
       - SSL_KEY_PATH=/app/config/ssl/server.key
       - SCYLLADB_HOST=onpre-database
       - SCYLLADB_PORT=8000
-      - DOCKER_NETWORK=sample-dind-lambda_onpre-internal-network  # Lambda用内部ネットワーク
+      # DOCKER_NETWORK は自動検出（ContainerManager._resolve_network）
       - IDLE_TIMEOUT_MINUTES=${IDLE_TIMEOUT_MINUTES:-5}  # アイドル停止までの分数
     depends_on:
       - database
