@@ -156,8 +156,3 @@ def get_manager() -> ContainerManager:
     if _manager_instance is None:
         _manager_instance = ContainerManager()
     return _manager_instance
-
-
-# 後方互換性のためのエイリアス（非推奨）
-# 新しいコードでは get_manager() を使用すること
-manager = None  # 遅延初期化のためNone

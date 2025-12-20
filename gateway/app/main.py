@@ -5,196 +5,33 @@ AWS API GatewayとLambda Authorizerの挙動を再現し、
 routing.ymlに基づいてリクエストをLambda RIEコンテナに転送します。
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, Depends, Header
+from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import JSONResponse, Response
 from typing import Optional
-from pydantic import BaseModel
-import json
-import time
-import os
-import base64
-from datetime import datetime, timedelta, timezone
-import jwt
+from datetime import datetime, timezone
 import requests
 
 from .config import config
+from .core.security import create_access_token, verify_token
+from .core.proxy import build_event, proxy_to_lambda, parse_lambda_response
+from .models.schemas import AuthRequest, AuthResponse, AuthenticationResult
+from .services.route_matcher import load_routing_config, match_route
+from .services.container import get_manager
 
-try:
-    from .router import load_routing_config, match_route
-except ImportError:
-    from router import load_routing_config, match_route
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 起動時にルーティング設定を読み込み
+    """アプリケーションのライフサイクル管理"""
     load_routing_config()
     yield
 
-app = FastAPI(title="Lambda Gateway", version="2.0.0", lifespan=lifespan, root_path=config.root_path)
 
-# JWT設定
-# SECRET_KEY等はconfigから直接参照するためグローバル変数は削除
-ALGORITHM = "HS256"
-
-# API Key設定も削除しconfigから参照
-
-
-# リクエスト/レスポンスモデル
-class AuthParameters(BaseModel):
-    USERNAME: str
-    PASSWORD: str
-
-
-class AuthRequest(BaseModel):
-    AuthParameters: AuthParameters
-
-
-class AuthenticationResult(BaseModel):
-    IdToken: str
-
-
-class AuthResponse(BaseModel):
-    AuthenticationResult: AuthenticationResult
-
-
-def create_access_token(username: str) -> str:
-    """
-    JWTトークンを生成
-    """
-    expire = datetime.now(timezone.utc) + timedelta(seconds=config.JWT_EXPIRES_DELTA)
-    to_encode = {
-        "sub": username,
-        "exp": expire,
-        "iat": datetime.now(timezone.utc)
-    }
-    encoded_jwt = jwt.encode(to_encode, config.JWT_SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-def verify_token(authorization: Optional[str] = Header(None)) -> str:
-    """
-    Lambda Authorizer互換：Authorizationヘッダーを検証してユーザー名を返す
-    """
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    try:
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer":
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        
-        payload = jwt.decode(token, config.JWT_SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        return username
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    except (jwt.exceptions.DecodeError, jwt.exceptions.PyJWTError):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-def build_event(
-    request: Request,
-    body: bytes,
-    user_id: str,
-    path_params: dict,
-    route_path: str
-) -> dict:
-    """
-    API Gateway Lambda Proxy Integration互換のeventオブジェクトを構築
-    """
-    # gzip圧縮されているか確認
-    is_base64 = "gzip" in request.headers.get("content-encoding", "").lower()
-    
-    # ボディの処理
-    if is_base64:
-        body_content = base64.b64encode(body).decode("utf-8")
-    else:
-        try:
-            body_content = body.decode("utf-8")
-        except UnicodeDecodeError:
-            body_content = base64.b64encode(body).decode("utf-8")
-            is_base64 = True
-    
-    # クエリパラメータ
-    query_params = dict(request.query_params) if request.query_params else None
-    
-    # ヘッダー
-    headers = {key: value for key, value in request.headers.items()}
-    
-    event = {
-        "resource": route_path or str(request.url.path),
-        "path": str(request.url.path),
-        "httpMethod": request.method,
-        "headers": headers,
-        "queryStringParameters": query_params,
-        "pathParameters": path_params if path_params else None,
-        "requestContext": {
-            "identity": {
-                "sourceIp": request.client.host if request.client else "unknown"
-            },
-            "authorizer": {
-                "claims": {
-                    "cognito:username": user_id
-                },
-                "cognito:username": user_id
-            },
-            "requestId": f"req-{int(time.time() * 1000)}"
-        },
-        "body": body_content,
-        "isBase64Encoded": is_base64
-    }
-    
-    return event
-
-
-
-
-def resolve_container_ip(container_name: str) -> str:
-    """
-    コンテナ名からIPアドレスを解決
-    
-    Gatewayが内部ネットワーク(onpre-internal-network)に参加しているため、
-    DockerのDNS機能によりコンテナ名で直接アクセス可能。
-    そのため、基本的にはコンテナ名をそのまま返す。
-    """
-    # 既にIPアドレス形式の場合はそのまま返す
-    if container_name.replace(".", "").isdigit():
-        return container_name
-        
-    # 同一ネットワーク内なのでコンテナ名で名前解決可能
-    return container_name
-
-
-def proxy_to_lambda(target_container: str, event: dict) -> requests.Response:
-    """
-    Lambda RIEコンテナにリクエストを転送
-    
-    Args:
-        target_container: routing.ymlで定義されたコンテナ名
-        event: 構築されたeventオブジェクト
-    
-    Returns:
-        Lambda RIEからのレスポンス
-    """
-    # コンテナ名からIPを解決
-    host = resolve_container_ip(target_container)
-    
-    rie_url = f"http://{host}:8080/2015-03-31/functions/function/invocations"
-    
-    headers = {"Content-Type": "application/json"}
-    
-    response = requests.post(
-        rie_url,
-        data=json.dumps(event),
-        headers=headers,
-        timeout=30
-    )
-    
-    return response
+app = FastAPI(
+    title="Lambda Gateway",
+    version="2.0.0",
+    lifespan=lifespan,
+    root_path=config.root_path
+)
 
 
 # ===========================================
@@ -207,24 +44,25 @@ async def authenticate_user(
     response: Response,
     x_api_key: Optional[str] = Header(None)
 ):
-    """
-    ユーザー認証エンドポイント（認証不要）
-    """
+    """ユーザー認証エンドポイント"""
     if not x_api_key or x_api_key != config.X_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    
+
     response.headers["PADMA_USER_AUTHORIZED"] = "true"
-    
+
     username = request.AuthParameters.USERNAME
     password = request.AuthParameters.PASSWORD
-    
-    # DB照合ロジック (Configベースの簡易認証)
+
     if username == config.AUTH_USER and password == config.AUTH_PASS:
-        id_token = create_access_token(username)
+        id_token = create_access_token(
+            username=username,
+            secret_key=config.JWT_SECRET_KEY,
+            expires_delta=config.JWT_EXPIRES_DELTA
+        )
         return AuthResponse(
             AuthenticationResult=AuthenticationResult(IdToken=id_token)
         )
-    
+
     return JSONResponse(
         status_code=401,
         content={"message": "Unauthorized"},
@@ -234,53 +72,38 @@ async def authenticate_user(
 
 @app.get("/health")
 async def health_check():
-    """
-    ヘルスチェックエンドポイント（認証不要）
-    """
+    """ヘルスチェックエンドポイント"""
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def gateway_handler(request: Request, path: str):
-    """
-    キャッチオールルート：routing.ymlに基づいてLambda RIEに転送
-    
-    オンデマンドでコンテナを起動し、アイドル時に自動停止される。
-    """
+    """キャッチオールルート：routing.ymlに基づいてLambda RIEに転送"""
     request_path = f"/{path}"
 
-    # ルーティングマッチング（拡張版）
-    target_container, path_params, route_path, function_config = match_route(request_path, request.method)
+    # ルーティングマッチング
+    target_container, path_params, route_path, function_config = match_route(
+        request_path, request.method
+    )
 
     if not target_container:
-        return JSONResponse(
-            status_code=404,
-            content={"message": "Not Found"}
-        )
+        return JSONResponse(status_code=404, content={"message": "Not Found"})
 
     # 認証検証
     authorization = request.headers.get("authorization")
+    if not authorization:
+        return JSONResponse(status_code=401, content={"message": "Unauthorized"})
+
+    user_id = verify_token(authorization, config.JWT_SECRET_KEY)
+    if not user_id:
+        return JSONResponse(status_code=401, content={"message": "Unauthorized"})
+
+    # オンデマンドコンテナ起動
     try:
-        user_id = verify_token(authorization)
-    except HTTPException:
-        return JSONResponse(
-            status_code=401,
-            content={"message": "Unauthorized"}
-        )
-
-    # オンデマンドコンテナ起動 / ウォームアップ
-    try:
-        from .container_manager import get_manager
-        container_manager = get_manager()
-
-        # function_configからimage/environmentを取得
-        image = function_config.get("image")  # None可（デフォルトでcontainer:latestになる）
-        env = function_config.get("environment", {})
-
-        container_host = container_manager.ensure_container_running(
+        container_host = get_manager().ensure_container_running(
             name=target_container,
-            image=image,
-            env=env
+            image=function_config.get("image"),
+            env=function_config.get("environment", {})
         )
     except Exception as e:
         print(f"Container start failed: {e}")
@@ -289,53 +112,28 @@ async def gateway_handler(request: Request, path: str):
             content={"message": "Service Unavailable", "detail": "Cold start failed"}
         )
 
-    # リクエストボディを取得
-    body = await request.body()
-
-    # eventオブジェクトを構築
-    event = build_event(request, body, user_id, path_params, route_path)
-
-    # Lambda RIEに転送（container_hostを使用）
+    # Lambda RIEに転送
     try:
+        body = await request.body()
+        event = build_event(request, body, user_id, path_params, route_path)
         lambda_response = proxy_to_lambda(container_host, event)
-        
-        # Lambdaからのレスポンスを返却
-        try:
-            response_data = lambda_response.json()
-            
-            # Lambda応答がAPI Gateway形式の場合
-            if isinstance(response_data, dict) and "statusCode" in response_data:
-                status_code = response_data.get("statusCode", 200)
-                response_headers = response_data.get("headers", {})
-                response_body = response_data.get("body", "")
-                
-                # bodyがJSON文字列の場合はパース
-                if isinstance(response_body, str):
-                    try:
-                        response_body = json.loads(response_body)
-                    except json.JSONDecodeError:
-                        pass
-                
-                return JSONResponse(
-                    status_code=status_code,
-                    content=response_body,
-                    headers=response_headers
-                )
-            else:
-                return JSONResponse(content=response_data)
-                
-        except json.JSONDecodeError:
+
+        # レスポンス変換
+        result = parse_lambda_response(lambda_response)
+        if "raw_content" in result:
             return Response(
-                content=lambda_response.content,
-                status_code=lambda_response.status_code,
-                headers=dict(lambda_response.headers)
+                content=result["raw_content"],
+                status_code=result["status_code"],
+                headers=result["headers"]
             )
-            
-    except requests.exceptions.RequestException as e:
         return JSONResponse(
-            status_code=502,
-            content={"message": "Bad Gateway"}
+            status_code=result["status_code"],
+            content=result["content"],
+            headers=result["headers"]
         )
+
+    except requests.exceptions.RequestException:
+        return JSONResponse(status_code=502, content={"message": "Bad Gateway"})
 
 
 if __name__ == "__main__":

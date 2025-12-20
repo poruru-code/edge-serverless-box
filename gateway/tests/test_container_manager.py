@@ -7,18 +7,15 @@ import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 import time
 
-# テスト対象（まだ存在しない - Red Phase）
-# from gateway.app.container_manager import ContainerManager
-
 
 class TestContainerManagerEnsureRunning:
     """ensure_container_running() のテスト"""
 
-    @patch("gateway.app.container_manager.docker")
+    @patch("gateway.app.services.container.docker")
     def test_cold_start_creates_new_container(self, mock_docker):
         """コンテナが存在しない場合、新規作成される"""
         import docker.errors
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -46,10 +43,10 @@ class TestContainerManagerEnsureRunning:
         assert call_kwargs["network"] == "test-network"
         assert result == "lambda-test"
 
-    @patch("gateway.app.container_manager.docker")
+    @patch("gateway.app.services.container.docker")
     def test_warm_start_restarts_stopped_container(self, mock_docker):
         """停止中のコンテナはrestartされる"""
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -73,10 +70,10 @@ class TestContainerManagerEnsureRunning:
         mock_client.containers.run.assert_not_called()
         assert result == "lambda-test"
 
-    @patch("gateway.app.container_manager.docker")
+    @patch("gateway.app.services.container.docker")
     def test_already_running_does_nothing(self, mock_docker):
         """既に起動中のコンテナは何もしない"""
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -100,10 +97,10 @@ class TestContainerManagerEnsureRunning:
         mock_client.containers.run.assert_not_called()
         assert result == "lambda-test"
 
-    @patch("gateway.app.container_manager.docker")
+    @patch("gateway.app.services.container.docker")
     def test_updates_last_accessed_time(self, mock_docker):
         """アクセス時刻が更新される"""
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -132,10 +129,10 @@ class TestContainerManagerEnsureRunning:
 class TestContainerManagerStopIdle:
     """stop_idle_containers() のテスト"""
 
-    @patch("gateway.app.container_manager.docker")
+    @patch("gateway.app.services.container.docker")
     def test_stops_idle_containers(self, mock_docker):
         """タイムアウト超過コンテナが停止される"""
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -157,10 +154,10 @@ class TestContainerManagerStopIdle:
         mock_container.stop.assert_called_once()
         assert "lambda-old" not in manager.last_accessed
 
-    @patch("gateway.app.container_manager.docker")
+    @patch("gateway.app.services.container.docker")
     def test_keeps_recent_containers(self, mock_docker):
         """最近アクセスされたコンテナは停止されない"""
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -178,11 +175,11 @@ class TestContainerManagerStopIdle:
         mock_client.containers.get.assert_not_called()
         assert "lambda-recent" in manager.last_accessed
 
-    @patch("gateway.app.container_manager.docker")
-    @patch("gateway.app.container_manager.time")
+    @patch("gateway.app.services.container.docker")
+    @patch("gateway.app.services.container.time")
     def test_timeout_boundary_exact(self, mock_time, mock_docker):
         """タイムアウトちょうどの時間ではコンテナは停止されない（>で比較するため）"""
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -203,11 +200,11 @@ class TestContainerManagerStopIdle:
         mock_client.containers.get.assert_not_called()
         assert "lambda-boundary" in manager.last_accessed
 
-    @patch("gateway.app.container_manager.docker")
-    @patch("gateway.app.container_manager.time")
+    @patch("gateway.app.services.container.docker")
+    @patch("gateway.app.services.container.time")
     def test_timeout_boundary_exceeded(self, mock_time, mock_docker):
         """タイムアウトを1秒超えたらコンテナは停止される"""
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -243,7 +240,7 @@ class TestIdleTimeoutMinutesEnv:
         os.environ.pop("IDLE_TIMEOUT_MINUTES", None)
         
         # scheduler.pyを再読み込み
-        from gateway.app import scheduler
+        from gateway.app.services import scheduler
         import importlib
         importlib.reload(scheduler)
         
@@ -256,7 +253,7 @@ class TestIdleTimeoutMinutesEnv:
         os.environ["IDLE_TIMEOUT_MINUTES"] = "5"
         
         try:
-            from gateway.app import scheduler
+            from gateway.app.services import scheduler
             import importlib
             importlib.reload(scheduler)
             
@@ -270,11 +267,11 @@ class TestIdleTimeoutMinutesEnv:
 class TestContainerManagerImageDefault:
     """imageのデフォルト値のテスト"""
 
-    @patch("gateway.app.container_manager.docker")
+    @patch("gateway.app.services.container.docker")
     def test_default_image_from_container_name(self, mock_docker):
         """imageが指定されない場合、container:latestが使用される"""
         import docker.errors
-        from gateway.app.container_manager import ContainerManager
+        from gateway.app.services.container import ContainerManager
         
         # Arrange
         mock_client = MagicMock()
@@ -297,4 +294,3 @@ class TestContainerManagerImageDefault:
         # Assert - デフォルトでcontainer:latestが使用される
         call_args = mock_client.containers.run.call_args
         assert call_args[0][0] == "lambda-test:latest"
-

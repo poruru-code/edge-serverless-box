@@ -22,20 +22,20 @@ IDLE_TIMEOUT = IDLE_TIMEOUT_MINUTES * 60  # 秒に変換
 def cleanup_idle_containers():
     """
     アイドル状態のLambdaコンテナを停止
-    
+
     ContainerManagerに委譲してアイドルコンテナを検出・停止
     """
     logger.info("Starting idle container cleanup...")
-    
+
     try:
-        from .container_manager import get_manager
+        from .container import get_manager
         manager = get_manager()
-        
-        # 15分（900秒）以上アクセスがないコンテナを停止
+
+        # アイドルタイムアウトを超えたコンテナを停止
         manager.stop_idle_containers(timeout_seconds=IDLE_TIMEOUT)
-        
+
         logger.info("Cleanup completed")
-        
+
     except Exception as e:
         logger.error(f"Cleanup failed: {str(e)}")
 
@@ -45,10 +45,10 @@ def scheduled_lambda_execution():
     定期実行されるLambda関数のトリガー
     """
     logger.info("Executing scheduled Lambda function...")
-    
+
     # TODO: lambda_gatewayのinvoke機能を呼び出す
     # または直接コンテナを起動してイベントを送信
-    
+
     pass
 
 
@@ -57,7 +57,7 @@ def main():
     スケジューラーのメインループ
     """
     scheduler = BlockingScheduler()
-    
+
     # アイドルコンテナのクリーンアップ（毎分実行）
     scheduler.add_job(
         cleanup_idle_containers,
@@ -65,7 +65,7 @@ def main():
         id="cleanup_idle_containers",
         name="Cleanup idle Lambda containers"
     )
-    
+
     # 定期実行Lambda（例：毎時0分に実行）
     # scheduler.add_job(
     #     scheduled_lambda_execution,
@@ -73,9 +73,9 @@ def main():
     #     id="scheduled_lambda",
     #     name="Scheduled Lambda execution"
     # )
-    
+
     logger.info("APScheduler started")
-    
+
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

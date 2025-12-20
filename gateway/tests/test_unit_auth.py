@@ -1,8 +1,8 @@
 import pytest
 import jwt
 from fastapi.testclient import TestClient
-from gateway.app.main import app, create_access_token, verify_token
-# モジュールリロードの問題を回避するため、configオブジェクトそのものをimport
+from gateway.app.main import app
+from gateway.app.core.security import create_access_token, verify_token
 from gateway.app.config import config
 
 client = TestClient(app)
@@ -67,13 +67,14 @@ class TestAuthUnit:
         
     def test_token_verify_custom_secret(self, monkeypatch):
         """シークレットキー変更時のトークン検証"""
-        monkeypatch.setattr(config, "JWT_SECRET_KEY", "new-secret")
+        new_secret = "new-secret"
+        monkeypatch.setattr(config, "JWT_SECRET_KEY", new_secret)
         
         # 新しいシークレットでトークン生成
-        token = create_access_token("custom-user")
+        token = create_access_token("custom-user", secret_key=new_secret)
         
         # 1. 新しいキーでデコードできるか (create側の検証)
-        decoded = jwt.decode(token, "new-secret", algorithms=["HS256"])
+        decoded = jwt.decode(token, new_secret, algorithms=["HS256"])
         assert decoded["sub"] == "custom-user"
         
         # 2. 古いキーではデコードできないか (署名エラーになるはず)
@@ -81,6 +82,5 @@ class TestAuthUnit:
             jwt.decode(token, "dev-secret-key-change-in-production", algorithms=["HS256"])
 
         # 3. verify_token関数が新しいキーを使って検証できるか
-        # Authorizationヘッダー形式で渡す
-        username = verify_token(f"Bearer {token}")
+        username = verify_token(f"Bearer {token}", secret_key=new_secret)
         assert username == "custom-user"

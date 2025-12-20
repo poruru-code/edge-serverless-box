@@ -51,6 +51,18 @@ sequenceDiagram
 ├── Dockerfile              # DinD親コンテナのビルド定義
 ├── entrypoint.sh           # 親コンテナ起動スクリプト
 ├── gateway/                # FastAPIアプリケーション
+│   └── app/
+│       ├── main.py         # エンドポイント定義
+│       ├── config.py       # 設定管理
+│       ├── core/           # 認証・プロキシロジック
+│       │   ├── security.py # JWT認証
+│       │   └── proxy.py    # Lambda転送
+│       ├── models/         # Pydanticスキーマ
+│       │   └── schemas.py
+│       └── services/       # ビジネスロジック
+│           ├── container.py      # コンテナ管理
+│           ├── route_matcher.py  # ルーティング
+│           └── scheduler.py      # 定期実行
 ├── lambda_functions/       # ユーザー関数コード
 ├── tests/                  # E2Eテスト
 └── docs/                   # 仕様書

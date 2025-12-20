@@ -1,16 +1,19 @@
 """
-ルーティングモジュール
+ルートマッチングサービス
 
 routing.ymlを読み込み、リクエストパス/メソッドからターゲットコンテナを特定します。
+
+Note:
+    FastAPIの APIRouter とは異なる機能を提供します。
+    このモジュールは設定ファイルベースのルーティングマッチングロジックです。
 """
 import os
 import re
-import yaml
 from typing import Optional, Tuple, Dict, Any, List
 from functools import lru_cache
+import yaml
 
-
-from .config import config
+from ..config import config
 
 ROUTING_CONFIG_PATH = config.ROUTING_CONFIG_PATH
 
@@ -21,15 +24,15 @@ _routing_config: List[Dict[str, Any]] = []
 def load_routing_config() -> List[Dict[str, Any]]:
     """
     routing.ymlを読み込んでキャッシュ
-    
+
     起動時に一度だけ呼び出される
     """
     global _routing_config
-    
+
     try:
         with open(ROUTING_CONFIG_PATH, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-            _routing_config = config.get("routes", [])
+            cfg = yaml.safe_load(f)
+            _routing_config = cfg.get("routes", [])
             print(f"Loaded {len(_routing_config)} routes from {ROUTING_CONFIG_PATH}")
     except FileNotFoundError:
         print(f"Warning: Routing config not found at {ROUTING_CONFIG_PATH}")
@@ -37,7 +40,7 @@ def load_routing_config() -> List[Dict[str, Any]]:
     except yaml.YAMLError as e:
         print(f"Error parsing routing config: {e}")
         _routing_config = []
-    
+
     return _routing_config
 
 
@@ -53,8 +56,8 @@ def get_routing_config() -> List[Dict[str, Any]]:
 def _path_to_regex(path_pattern: str) -> str:
     """
     パスパターンを正規表現に変換
-    
-    例: "/users/{user_id}/posts/{post_id}" 
+
+    例: "/users/{user_id}/posts/{post_id}"
         → "^/users/(?P<user_id>[^/]+)/posts/(?P<post_id>[^/]+)$"
     """
     # {param} を名前付きキャプチャグループに置換
@@ -66,7 +69,10 @@ def _path_to_regex(path_pattern: str) -> str:
     return f"^{regex_pattern}$"
 
 
-def match_route(request_path: str, request_method: str) -> Tuple[Optional[str], Dict[str, str], Optional[str], Dict[str, Any]]:
+def match_route(
+    request_path: str,
+    request_method: str
+) -> Tuple[Optional[str], Dict[str, str], Optional[str], Dict[str, Any]]:
     """
     リクエストパスとメソッドからターゲットコンテナを特定
 
@@ -99,19 +105,9 @@ def match_route(request_path: str, request_method: str) -> Tuple[Optional[str], 
             # パスパラメータを抽出
             path_params = match.groupdict()
 
-            # 新しいfunction構造に対応
+            # function構造からコンテナ情報を取得
             function_config = route.get("function", {})
-            if function_config:
-                # 新構造: function.container
-                target_container = function_config.get("container", "")
-            else:
-                # 後方互換性: target_container（旧構造）
-                target_container = route.get("target_container", "")
-                function_config = {
-                    "container": target_container,
-                    "image": route.get("image"),
-                    "environment": route.get("environment", {})
-                }
+            target_container = function_config.get("container", "")
 
             return target_container, path_params, route_path, function_config
 
@@ -122,17 +118,17 @@ def match_route(request_path: str, request_method: str) -> Tuple[Optional[str], 
 def extract_path_params(request_path: str, route_pattern: str) -> Dict[str, str]:
     """
     リクエストパスからパスパラメータを抽出
-    
+
     Args:
         request_path: 実際のリクエストパス
         route_pattern: ルートパターン ({param}形式)
-    
+
     Returns:
         パスパラメータの辞書
     """
     regex_pattern = _path_to_regex(route_pattern)
     match = re.match(regex_pattern, request_path)
-    
+
     if match:
         return match.groupdict()
     return {}

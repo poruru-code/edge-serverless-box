@@ -41,6 +41,30 @@ graph TD
 - **通信**: クライアントとはHTTPで通信。内部でDocker APIを使用してLambdaコンテナを制御。
 - **ポート**: `8000`
 
+#### ディレクトリ構成
+```
+gateway/app/
+├── main.py              # エンドポイント定義（認証、ヘルスチェック、プロキシ）
+├── config.py            # 環境変数ベースの設定管理
+├── core/                # 共通ロジック
+│   ├── security.py      # JWT生成/検証
+│   └── proxy.py         # Lambda Proxy Integration互換イベント構築・転送
+├── models/              # データモデル
+│   └── schemas.py       # Pydanticスキーマ（AuthRequest, AuthResponse等）
+└── services/            # ビジネスロジック
+    ├── container.py     # ContainerManager（オンデマンド起動/アイドル停止）
+    ├── route_matcher.py # routing.ymlベースのパスマッチング
+    └── scheduler.py     # APSchedulerによる定期タスク（アイドルクリーンアップ）
+```
+
+#### 主要コンポーネント
+| モジュール | 責務 |
+|-----------|------|
+| `core/security.py` | JWTトークン生成・検証（FastAPI非依存で単体テスト可能） |
+| `core/proxy.py` | API Gateway Lambda Proxy Integration互換イベント構築、Lambda RIE転送 |
+| `services/container.py` | Docker SDKを使用したコンテナライフサイクル管理 |
+| `services/route_matcher.py` | `routing.yml` のパースとリクエストマッチング |
+
 ### 2.2 RustFS (Storage)
 - **役割**: AWS S3互換のオブジェクトストレージ。Lambdaコードやデータの保存に使用。
 - **構成**:
