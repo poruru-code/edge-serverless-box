@@ -9,7 +9,11 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml /app/
 
 # Install dependencies (Cache layer)
-RUN uv pip install --system --break-system-packages "fastapi" "uvicorn[standard]" "requests" "httpx" "pyjwt" "respx" "pyyaml" "pydantic" "pydantic-settings" "python-json-logger" "python-dotenv"
+# pyproject.toml から requirements.txt を生成してインストールすることで、
+# 依存関係の変更漏れを防ぎつつ、キャッシュを有効活用する
+# 注意: requirements.txt 生成のために一時ファイルが必要な場合があるため
+RUN uv pip compile pyproject.toml -o requirements.txt && \
+    uv pip install --system --break-system-packages -r requirements.txt
 
 # Copy services code
 COPY services/gateway /app/services/gateway
