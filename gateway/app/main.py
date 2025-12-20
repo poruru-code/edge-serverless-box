@@ -6,7 +6,7 @@ routing.ymlに基づいてリクエストをLambda RIEコンテナに転送し�
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi import FastAPI, Request, HTTPException, Header, BackgroundTasks
 from fastapi.responses import JSONResponse, Response
 from typing import Optional
 from datetime import datetime, timezone
@@ -18,12 +18,14 @@ from .core.proxy import build_event, proxy_to_lambda, parse_lambda_response
 from .models.schemas import AuthRequest, AuthResponse, AuthenticationResult
 from .services.route_matcher import load_routing_config, match_route
 from .services.container import get_manager
+from .services.function_registry import load_functions_config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
     load_routing_config()
+    load_functions_config()
     yield
 
 
@@ -69,6 +71,60 @@ async def authenticate_user(
 async def health_check():
     """ヘルスチェックエンドポイント"""
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+# ===========================================
+# AWS Lambda Service Compatible Endpoint
+# ===========================================
+
+
+@app.post("/2015-03-31/functions/{function_name}/invocations")
+async def invoke_lambda_api(
+    function_name: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """
+    AWS Lambda Invoke API 互換エンドポイント
+    boto3.client('lambda').invoke() からのリクエストを処理
+
+    InvocationType:
+      - RequestResponse（デフォルト）: 同期呼び出し、結果を返す
+      - Event: 非同期呼び出し、即座に202を返す
+    """
+    from .services.lambda_invoker import invoke_function, get_function_config_or_none
+    from .core.exceptions import (
+        ContainerStartError,
+        LambdaExecutionError,
+    )
+
+    # 関数存在チェック（404判定用）
+    if get_function_config_or_none(function_name) is None:
+        return JSONResponse(
+            status_code=404,
+            content={"message": f"Function not found: {function_name}"},
+        )
+
+    invocation_type = request.headers.get("X-Amz-Invocation-Type", "RequestResponse")
+    body = await request.body()
+
+    try:
+        if invocation_type == "Event":
+            # 非同期呼び出し：バックグラウンドで実行、即座に202を返す
+            background_tasks.add_task(invoke_function, function_name, body)
+            return Response(status_code=202, content=b"", media_type="application/json")
+        else:
+            # 同期呼び出し：結果を待って返す
+            resp = invoke_function(function_name, body)
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type="application/json",
+            )
+    except ContainerStartError as e:
+        return JSONResponse(status_code=503, content={"message": str(e)})
+    except LambdaExecutionError as e:
+        return JSONResponse(status_code=502, content={"message": str(e)})
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])

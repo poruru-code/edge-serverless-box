@@ -81,6 +81,8 @@ def match_route(
             - route_path: マッチしたルートのパスパターン (resource用)
             - function_config: function設定（image, environment等）
     """
+    from .function_registry import get_function_config
+
     routes = get_routing_config()
 
     for route in routes:
@@ -99,9 +101,17 @@ def match_route(
             # パスパラメータを抽出
             path_params = match.groupdict()
 
-            # function構造からコンテナ情報を取得
-            function_config = route.get("function", {})
-            target_container = function_config.get("container", "")
+            # function 設定を取得（新形式: 文字列、旧形式: 辞書）
+            function_ref = route.get("function", {})
+
+            if isinstance(function_ref, str):
+                # 新形式: function_registry から設定を取得
+                target_container = function_ref
+                function_config = get_function_config(function_ref) or {}
+            else:
+                # 旧形式（後方互換）: 辞書から直接取得
+                target_container = function_ref.get("container", "")
+                function_config = function_ref
 
             return target_container, path_params, route_path, function_config
 

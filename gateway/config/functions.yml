@@ -1,0 +1,20 @@
+# Lambda関数定義
+# container名 → image/environment のマッピング
+
+# デフォルト環境変数（全関数に注入）
+defaults:
+  environment:
+    LAMBDA_ENDPOINT: "https://onpre-gateway:443"
+
+functions:
+  lambda-s3-test:
+    environment:
+      S3_ENDPOINT: "http://onpre-storage:9000"
+      RUSTFS_ROOT_USER: "rustfsadmin"
+      RUSTFS_ROOT_PASSWORD: "rustfsadmin"
+
+  lambda-hello: {}
+
+  lambda-scylla-test:
+    environment:
+      DYNAMODB_ENDPOINT: "http://onpre-database:8000"

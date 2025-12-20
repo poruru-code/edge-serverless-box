@@ -148,7 +148,7 @@ def check_gateway_health() -> bool:
 
 def wait_for_gateway() -> bool:
     """Gatewayの起動を待機"""
-    print(f"[3/4] Waiting for Gateway to be ready...")
+    print("[3/4] Waiting for Gateway to be ready...")
     
     for i in range(1, MAX_RETRIES + 1):
         if check_gateway_health():
@@ -175,10 +175,41 @@ def start_containers(build: bool = False, dind: bool = False):
 
 
 def stop_containers(dind: bool = False):
-    """Docker Composeでコンテナを停止"""
+    """Docker Composeでコンテナを停止（冪等性確保）"""
     print("Cleaning up containers...")
+
+    # オンデマンド Lambda コンテナを動的に検索して停止・削除
+    # ネットワークに接続されている lambda-* コンテナを検索
+    try:
+        import docker
+
+        client = docker.from_env()
+        network_name = "sample-dind-lambda_onpre-internal-network"
+        try:
+            network = client.networks.get(network_name)
+            # ネットワークに接続中のコンテナを取得
+            network.reload()
+            containers = network.attrs.get("Containers", {})
+            for container_id, info in containers.items():
+                name = info.get("Name", "")
+                if name.startswith("lambda-"):
+                    print(f"  Removing Lambda container: {name}")
+                    try:
+                        client.containers.get(name).remove(force=True)
+                    except Exception:
+                        pass
+        except docker.errors.NotFound:
+            pass  # ネットワークが存在しない場合はスキップ
+    except ImportError:
+        # docker パッケージがない場合はフォールバック
+        pass
+
+    # Docker Compose で管理されているコンテナを停止
     compose_file = "docker-compose.dind.yml" if dind else "docker-compose.yml"
-    run_command(["docker", "compose", "-f", compose_file, "down"], check=False)
+    run_command(
+        ["docker", "compose", "-f", compose_file, "down", "--remove-orphans", "-v"],
+        check=False,
+    )
 
 
 def run_tests() -> int:
@@ -261,6 +292,5 @@ def main():
 
 
 if __name__ == "__main__":
-    import ipaddress
     sys.exit(main())
 

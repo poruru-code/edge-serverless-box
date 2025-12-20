@@ -17,6 +17,9 @@ class GatewayConfig(BaseModel):
     ROUTING_CONFIG_PATH: str = Field(
         default="/app/config/routing.yml", description="ルーティング定義ファイルパス"
     )
+    FUNCTIONS_CONFIG_PATH: str = Field(
+        default="/app/config/functions.yml", description="Lambda関数定義ファイルパス"
+    )
     SSL_CERT_PATH: str = Field(default="/app/config/ssl/server.crt", description="SSL証明書パス")
     SSL_KEY_PATH: str = Field(default="/app/config/ssl/server.key", description="SSL秘密鍵パス")
     DATA_ROOT_PATH: str = Field(default="/data", description="子コンテナデータのルートパス")

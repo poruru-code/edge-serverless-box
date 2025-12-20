@@ -48,6 +48,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - onpre-internal-network   # Lambda からアクセス可能に
 
   # ============================================
   # ScyllaDB (DynamoDB Compatible DB)
@@ -67,6 +69,8 @@ services:
       retries: 30
       start_period: 180s
     restart: unless-stopped
+    networks:
+      - onpre-internal-network   # Lambda からアクセス可能に
 
   # ============================================
   # VictoriaLogs
@@ -97,6 +101,9 @@ services:
       context: .
       dockerfile: gateway/Dockerfile.app
     container_name: onpre-gateway
+    networks:
+      - onpre-external           # 外部公開用
+      - onpre-internal-network   # Lambda間通信
     ports:
       - "443:443"    # Gateway API (HTTPS)
     volumes:
@@ -109,7 +116,7 @@ services:
       - SSL_KEY_PATH=/app/config/ssl/server.key
       - SCYLLADB_HOST=onpre-database
       - SCYLLADB_PORT=8000
-      - DOCKER_NETWORK=sample-dind-lambda_default  # オンデマンドコンテナ用ネットワーク
+      - DOCKER_NETWORK=sample-dind-lambda_onpre-internal-network  # Lambda用内部ネットワーク
       - IDLE_TIMEOUT_MINUTES=${IDLE_TIMEOUT_MINUTES:-5}  # アイドル停止までの分数
     depends_on:
       - database
@@ -122,3 +129,11 @@ volumes:
   rustfs_data:
   victorialogs_data:
 
+networks:
+  # 外部公開用ネットワーク（ポート公開）
+  onpre-external:
+    driver: bridge
+  # Lambda間通信専用ネットワーク（外部アクセス遮断）
+  onpre-internal-network:
+    driver: bridge
+    internal: true

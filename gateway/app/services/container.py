@@ -11,7 +11,6 @@ import logging
 import os
 from typing import Dict, Optional
 
-import requests
 
 logger = logging.getLogger("gateway.container_manager")
 
@@ -87,27 +86,28 @@ class ContainerManager:
             self._wait_for_readiness(name)
             return name
 
-    def _wait_for_readiness(self, host: str, timeout: int = 10) -> None:
+    def _wait_for_readiness(self, host: str, port: int = 8080, timeout: int = 30) -> None:
         """
-        Lambda RIEが応答可能になるまで待機
+        Lambda RIEがリクエスト可能になるまで待機
+
+        TCP ポート接続で確認（POST invocation を消費しない）
+        これにより同時リクエスト時の RIE パニックを回避
 
         Args:
             host: コンテナのホスト名
+            port: RIE のリッスンポート（デフォルト 8080）
             timeout: 待機タイムアウト（秒）
         """
-        url = f"http://{host}:8080/2015-03-31/functions/function/invocations"
+        import socket
+
         start = time.time()
 
         while time.time() - start < timeout:
             try:
-                # RIEにPOSTリクエストを送信してヘルスチェック
-                # (空のペイロードでもレスポンスが返れば起動完了)
-                requests.post(url, json={}, timeout=1)
-                logger.debug(f"Container {host} is ready")
-                return
-            except requests.exceptions.ConnectionError:
-                time.sleep(0.5)
-            except requests.exceptions.Timeout:
+                with socket.create_connection((host, port), timeout=1):
+                    logger.debug(f"Container {host} is listening on port {port}")
+                    return
+            except (socket.timeout, ConnectionRefusedError, OSError):
                 time.sleep(0.5)
 
         logger.warning(f"Container {host} did not become ready in {timeout}s")

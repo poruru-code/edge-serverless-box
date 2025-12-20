@@ -1,34 +1,24 @@
 # ルーティング定義ファイル
 # Gateway起動時に読み込み、メモリにキャッシュされる
+# 関数の詳細（image, environment）は functions.yml で管理
 
 routes:
   # S3テスト用Lambda
   - path: "/api/s3/test"
     method: "POST"
-    function:
-      container: "lambda-s3-test"
-      # image: オプション（省略時は container:latest）
-      environment:
-        S3_ENDPOINT: "http://onpre-storage:9000"
-        RUSTFS_ROOT_USER: "rustfsadmin"
-        RUSTFS_ROOT_PASSWORD: "rustfsadmin"
+    function: "lambda-s3-test"
 
   # Hello Lambda
   - path: "/api/hello"
     method: "POST"
-    function:
-      container: "lambda-hello"
+    function: "lambda-hello"
 
   # ScyllaDB Test Lambda
   - path: "/api/scylla/test"
     method: "POST"
-    function:
-      container: "lambda-scylla-test"
-      environment:
-        DYNAMODB_ENDPOINT: "http://onpre-database:8000"
+    function: "lambda-scylla-test"
 
   # パスパラメータの例
   # - path: "/api/users/{user_id}"
   #   method: "GET"
-  #   function:
-  #     container: "lambda-user-get"
+  #   function: "lambda-user-get"
