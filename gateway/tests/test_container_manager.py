@@ -148,7 +148,8 @@ class TestContainerManagerEnsureRunning:
         assert result == "lambda-test"
 
     @patch("gateway.app.services.container.docker")
-    def test_already_running_does_nothing(self, mock_docker):
+    @patch("gateway.app.services.container.socket")
+    def test_already_running_does_nothing(self, mock_socket, mock_docker):
         """既に起動中のコンテナは何もしない"""
         from gateway.app.services.container import ContainerManager
 
@@ -202,7 +203,8 @@ class TestContainerManagerStopIdle:
     """stop_idle_containers() のテスト"""
 
     @patch("gateway.app.services.container.docker")
-    def test_stops_idle_containers(self, mock_docker):
+    @patch("gateway.app.services.container.socket")
+    def test_stops_idle_containers(self, mock_socket, mock_docker):
         """タイムアウト超過コンテナが停止される"""
         from gateway.app.services.container import ContainerManager
 
@@ -227,7 +229,8 @@ class TestContainerManagerStopIdle:
         assert "lambda-old" not in manager.last_accessed
 
     @patch("gateway.app.services.container.docker")
-    def test_keeps_recent_containers(self, mock_docker):
+    @patch("gateway.app.services.container.socket")
+    def test_keeps_recent_containers(self, mock_socket, mock_docker):
         """最近アクセスされたコンテナは停止されない"""
         from gateway.app.services.container import ContainerManager
 
@@ -249,7 +252,8 @@ class TestContainerManagerStopIdle:
 
     @patch("gateway.app.services.container.docker")
     @patch("gateway.app.services.container.time")
-    def test_timeout_boundary_exact(self, mock_time, mock_docker):
+    @patch("gateway.app.services.container.socket")
+    def test_timeout_boundary_exact(self, mock_socket, mock_time, mock_docker):
         """タイムアウトちょうどの時間ではコンテナは停止されない（>で比較するため）"""
         from gateway.app.services.container import ContainerManager
 
@@ -274,7 +278,8 @@ class TestContainerManagerStopIdle:
 
     @patch("gateway.app.services.container.docker")
     @patch("gateway.app.services.container.time")
-    def test_timeout_boundary_exceeded(self, mock_time, mock_docker):
+    @patch("gateway.app.services.container.socket")
+    def test_timeout_boundary_exceeded(self, mock_socket, mock_time, mock_docker):
         """タイムアウトを1秒超えたらコンテナは停止される"""
         from gateway.app.services.container import ContainerManager
 

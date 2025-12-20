@@ -130,7 +130,6 @@ class ContainerManager:
             port: RIE のリッスンポート（デフォルト 8080）
             timeout: 待機タイムアウト（秒）
         """
-        import socket
 
         start = time.time()
 
