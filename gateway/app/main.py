@@ -4,6 +4,7 @@ Lambda Gateway - API Gateway互換サーバー
 AWS API GatewayとLambda Authorizerの挙動を再現し、
 routing.ymlに基づいてリクエストをLambda RIEコンテナに転送します。
 """
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import JSONResponse, Response
@@ -27,10 +28,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Lambda Gateway",
-    version="2.0.0",
-    lifespan=lifespan,
-    root_path=config.root_path
+    title="Lambda Gateway", version="2.0.0", lifespan=lifespan, root_path=config.root_path
 )
 
 
@@ -38,11 +36,10 @@ app = FastAPI(
 # エンドポイント定義
 # ===========================================
 
+
 @app.post(config.AUTH_ENDPOINT_PATH, response_model=AuthResponse)
 async def authenticate_user(
-    request: AuthRequest,
-    response: Response,
-    x_api_key: Optional[str] = Header(None)
+    request: AuthRequest, response: Response, x_api_key: Optional[str] = Header(None)
 ):
     """ユーザー認証エンドポイント"""
     if not x_api_key or x_api_key != config.X_API_KEY:
@@ -57,16 +54,14 @@ async def authenticate_user(
         id_token = create_access_token(
             username=username,
             secret_key=config.JWT_SECRET_KEY,
-            expires_delta=config.JWT_EXPIRES_DELTA
+            expires_delta=config.JWT_EXPIRES_DELTA,
         )
-        return AuthResponse(
-            AuthenticationResult=AuthenticationResult(IdToken=id_token)
-        )
+        return AuthResponse(AuthenticationResult=AuthenticationResult(IdToken=id_token))
 
     return JSONResponse(
         status_code=401,
         content={"message": "Unauthorized"},
-        headers={"PADMA_USER_AUTHORIZED": "true"}
+        headers={"PADMA_USER_AUTHORIZED": "true"},
     )
 
 
@@ -103,13 +98,13 @@ async def gateway_handler(request: Request, path: str):
         container_host = get_manager().ensure_container_running(
             name=target_container,
             image=function_config.get("image"),
-            env=function_config.get("environment", {})
+            env=function_config.get("environment", {}),
         )
     except Exception as e:
         print(f"Container start failed: {e}")
         return JSONResponse(
             status_code=503,
-            content={"message": "Service Unavailable", "detail": "Cold start failed"}
+            content={"message": "Service Unavailable", "detail": "Cold start failed"},
         )
 
     # Lambda RIEに転送
@@ -124,12 +119,10 @@ async def gateway_handler(request: Request, path: str):
             return Response(
                 content=result["raw_content"],
                 status_code=result["status_code"],
-                headers=result["headers"]
+                headers=result["headers"],
             )
         return JSONResponse(
-            status_code=result["status_code"],
-            content=result["content"],
-            headers=result["headers"]
+            status_code=result["status_code"], content=result["content"], headers=result["headers"]
         )
 
     except requests.exceptions.RequestException:
@@ -138,4 +131,5 @@ async def gateway_handler(request: Request, path: str):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -3,6 +3,7 @@
 
 JWT トークンの生成と検証を行います。
 """
+
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import jwt
@@ -11,11 +12,7 @@ import jwt
 ALGORITHM = "HS256"
 
 
-def create_access_token(
-    username: str,
-    secret_key: str,
-    expires_delta: int = 3600
-) -> str:
+def create_access_token(username: str, secret_key: str, expires_delta: int = 3600) -> str:
     """
     JWTトークンを生成
 
@@ -28,11 +25,7 @@ def create_access_token(
         エンコードされたJWTトークン
     """
     expire = datetime.now(timezone.utc) + timedelta(seconds=expires_delta)
-    to_encode = {
-        "sub": username,
-        "exp": expire,
-        "iat": datetime.now(timezone.utc)
-    }
+    to_encode = {"sub": username, "exp": expire, "iat": datetime.now(timezone.utc)}
     encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
     return encoded_jwt
 

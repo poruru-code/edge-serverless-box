@@ -4,9 +4,9 @@ APScheduler - ライフサイクル管理とcron実行
 - アイドルコンテナのクリーンアップ
 - 定期実行Lambda関数のトリガー
 """
+
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
-import time
 import logging
 
 import os
@@ -29,6 +29,7 @@ def cleanup_idle_containers():
 
     try:
         from .container import get_manager
+
         manager = get_manager()
 
         # アイドルタイムアウトを超えたコンテナを停止
@@ -63,7 +64,7 @@ def main():
         cleanup_idle_containers,
         trigger=CronTrigger(minute="*"),
         id="cleanup_idle_containers",
-        name="Cleanup idle Lambda containers"
+        name="Cleanup idle Lambda containers",
     )
 
     # 定期実行Lambda（例：毎時0分に実行）

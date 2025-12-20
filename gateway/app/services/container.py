@@ -3,6 +3,7 @@ ContainerManager - Lambda コンテナのライフサイクル管理
 
 オンデマンドでコンテナを起動し、アイドル状態のコンテナを停止する。
 """
+
 import docker
 import docker.errors
 import time
@@ -34,10 +35,7 @@ class ContainerManager:
         self.last_accessed: Dict[str, float] = {}
 
     def ensure_container_running(
-        self,
-        name: str,
-        image: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None
+        self, name: str, image: Optional[str] = None, env: Optional[Dict[str, str]] = None
     ) -> str:
         """
         コンテナが起動していなければ起動し、ホスト名を返す
@@ -84,7 +82,7 @@ class ContainerManager:
                 detach=True,
                 environment=env or {},
                 network=self.network,
-                restart_policy={"Name": "no"}
+                restart_policy={"Name": "no"},
             )
             self._wait_for_readiness(name)
             return name

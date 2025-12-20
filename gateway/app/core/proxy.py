@@ -4,6 +4,7 @@
 API Gateway Lambda Proxy Integration互換のイベント構築と
 Lambda RIEへのリクエスト転送を行います。
 """
+
 import base64
 import json
 import time
@@ -14,11 +15,7 @@ import requests
 
 
 def build_event(
-    request: Request,
-    body: bytes,
-    user_id: str,
-    path_params: Dict[str, str],
-    route_path: str
+    request: Request, body: bytes, user_id: str, path_params: Dict[str, str], route_path: str
 ) -> Dict[str, Any]:
     """
     API Gateway Lambda Proxy Integration互換のeventオブジェクトを構築
@@ -60,19 +57,12 @@ def build_event(
         "queryStringParameters": query_params,
         "pathParameters": path_params if path_params else None,
         "requestContext": {
-            "identity": {
-                "sourceIp": request.client.host if request.client else "unknown"
-            },
-            "authorizer": {
-                "claims": {
-                    "cognito:username": user_id
-                },
-                "cognito:username": user_id
-            },
-            "requestId": f"req-{int(time.time() * 1000)}"
+            "identity": {"sourceIp": request.client.host if request.client else "unknown"},
+            "authorizer": {"claims": {"cognito:username": user_id}, "cognito:username": user_id},
+            "requestId": f"req-{int(time.time() * 1000)}",
         },
         "body": body_content,
-        "isBase64Encoded": is_base64
+        "isBase64Encoded": is_base64,
     }
 
     return event
@@ -118,12 +108,7 @@ def proxy_to_lambda(target_container: str, event: dict) -> requests.Response:
 
     headers = {"Content-Type": "application/json"}
 
-    response = requests.post(
-        rie_url,
-        data=json.dumps(event),
-        headers=headers,
-        timeout=30
-    )
+    response = requests.post(rie_url, data=json.dumps(event), headers=headers, timeout=30)
 
     return response
 
@@ -163,18 +148,14 @@ def parse_lambda_response(lambda_response: requests.Response) -> Dict[str, Any]:
             return {
                 "status_code": status_code,
                 "content": response_body,
-                "headers": response_headers
+                "headers": response_headers,
             }
         else:
-            return {
-                "status_code": 200,
-                "content": response_data,
-                "headers": {}
-            }
+            return {"status_code": 200, "content": response_data, "headers": {}}
 
     except json.JSONDecodeError:
         return {
             "status_code": lambda_response.status_code,
             "raw_content": lambda_response.content,
-            "headers": dict(lambda_response.headers)
+            "headers": dict(lambda_response.headers),
         }

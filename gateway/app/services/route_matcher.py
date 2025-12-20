@@ -7,10 +7,9 @@ Note:
     FastAPIの APIRouter とは異なる機能を提供します。
     このモジュールは設定ファイルベースのルーティングマッチングロジックです。
 """
-import os
+
 import re
 from typing import Optional, Tuple, Dict, Any, List
-from functools import lru_cache
 import yaml
 
 from ..config import config
@@ -61,17 +60,12 @@ def _path_to_regex(path_pattern: str) -> str:
         → "^/users/(?P<user_id>[^/]+)/posts/(?P<post_id>[^/]+)$"
     """
     # {param} を名前付きキャプチャグループに置換
-    regex_pattern = re.sub(
-        r"\{(\w+)\}",
-        r"(?P<\1>[^/]+)",
-        path_pattern
-    )
+    regex_pattern = re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", path_pattern)
     return f"^{regex_pattern}$"
 
 
 def match_route(
-    request_path: str,
-    request_method: str
+    request_path: str, request_method: str
 ) -> Tuple[Optional[str], Dict[str, str], Optional[str], Dict[str, Any]]:
     """
     リクエストパスとメソッドからターゲットコンテナを特定
