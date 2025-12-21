@@ -20,12 +20,11 @@ logger = logging.getLogger("manager.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup Logic: External reconciliation
+    # Startup Logic: Sync with Docker instead of killing all containers
     try:
-        # prune_managed_containers is now async
-        await manager.prune_managed_containers()
+        await manager.sync_with_docker()
     except Exception as e:
-        logger.error(f"Failed to prune containers on startup: {e}", exc_info=True)
+        logger.error(f"Failed to sync containers on startup: {e}", exc_info=True)
 
     # Start background scheduler for idle cleanup
     from apscheduler.schedulers.asyncio import AsyncIOScheduler

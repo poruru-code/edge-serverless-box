@@ -79,16 +79,27 @@ class ContainerManager:
                     },
                 )
 
-                container = await self.docker.run_container(
-                    image,
-                    name=name,
-                    detach=True,
-                    environment=env or {},
-                    network=self.network,
-                    restart_policy={"Name": "no"},
-                    labels={"created_by": "sample-dind"},
-                    log_config=log_config,
-                )
+                try:
+                    container = await self.docker.run_container(
+                        image,
+                        name=name,
+                        detach=True,
+                        environment=env or {},
+                        network=self.network,
+                        restart_policy={"Name": "no"},
+                        labels={"created_by": "sample-dind"},
+                        log_config=log_config,
+                    )
+                except docker.errors.APIError as e:
+                    # 409 Conflict: コンテナが既に存在する（競合による作成）
+                    if e.status_code == 409:
+                        logger.warning(
+                            f"Container {name} conflict detected (already exists). Adopting it."
+                        )
+                        # 既存コンテナを取得して続行
+                        container = await self.docker.get_container(name)
+                    else:
+                        raise e
 
             # Reload container to get latest attributes (IP) and check readiness
             await self.docker.reload_container(container)
@@ -156,6 +167,46 @@ class ContainerManager:
         """
         Kills and removes containers managed by this service (zombies).
         Now delegates to DockerAdaptor to avoid direct _client access.
+
+        Deprecated: Use sync_with_docker() instead for graceful restart.
         """
         logger.info("Pruning zombie containers...")
         await self.docker.prune_containers()
+
+    async def sync_with_docker(self):
+        """
+        Startup Logic:
+        Docker上の既存コンテナを確認し、実行中のものは管理下(last_accessed)に戻し、
+        停止中のものや異常なものはクリーンアップする。
+        """
+        logger.info("Syncing managed containers with Docker...")
+        try:
+            containers = await self.docker.list_containers(
+                all=True, filters={"label": "created_by=sample-dind"}
+            )
+
+            now = time.time()
+            synced_count = 0
+            removed_count = 0
+
+            for container in containers:
+                try:
+                    if container.status == "running":
+                        # 管理下に復帰させる
+                        self.last_accessed[container.name] = now
+                        synced_count += 1
+                        logger.debug(f"Adopted running container: {container.name}")
+                    else:
+                        # 停止しているコンテナは掃除
+                        logger.info(
+                            f"Removing stale container: {container.name} (status: {container.status})"
+                        )
+                        await self.docker.remove_container(container, force=True)
+                        removed_count += 1
+                except Exception as e:
+                    logger.error(f"Error syncing container {container.name}: {e}")
+
+            logger.info(f"Sync completed. Adopted: {synced_count}, Removed: {removed_count}")
+
+        except Exception as e:
+            logger.error(f"Failed to sync with Docker: {e}", exc_info=True)
