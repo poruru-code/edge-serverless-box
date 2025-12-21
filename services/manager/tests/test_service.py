@@ -62,3 +62,55 @@ async def test_ensure_container_running_warm_start(mock_docker_adaptor):
         assert result == "test-func"
         mock_docker_adaptor.run_container.assert_not_awaited()
         mock_wait.assert_awaited_once_with("1.2.3.4")
+
+
+@pytest.mark.asyncio
+async def test_wait_for_readiness_post_success():
+    """TDD: _wait_for_readiness が POST /invocations を使用してRIE起動を確認"""
+    with patch("services.manager.service.DockerAdaptor"):
+        manager = ContainerManager(network="test-net")
+
+    with patch("services.manager.service.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+        # POST成功レスポンス
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client.post.return_value = mock_response
+
+        await manager._wait_for_readiness("1.2.3.4")
+
+        # POST が正しいURLとペイロードで呼ばれたことを確認
+        mock_client.post.assert_called()
+        call_args = mock_client.post.call_args
+        assert "/2015-03-31/functions/function/invocations" in call_args[0][0]
+        assert call_args[1]["json"] == {"ping": True}
+
+
+@pytest.mark.asyncio
+async def test_wait_for_readiness_post_retry_then_success():
+    """TDD: POST失敗時にリトライし、最終的に成功"""
+    with patch("services.manager.service.DockerAdaptor"):
+        manager = ContainerManager(network="test-net")
+
+    with patch("services.manager.service.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+        # 最初の2回は例外、3回目は成功
+        import httpx
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client.post.side_effect = [
+            httpx.ConnectError("Connection refused"),
+            httpx.TimeoutException("Timeout"),
+            mock_response,
+        ]
+
+        with patch("services.manager.service.asyncio.sleep", new_callable=AsyncMock):
+            await manager._wait_for_readiness("1.2.3.4", timeout=30)
+
+        # 3回呼ばれたことを確認
+        assert mock_client.post.call_count == 3

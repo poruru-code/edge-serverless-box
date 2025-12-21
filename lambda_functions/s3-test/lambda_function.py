@@ -12,6 +12,10 @@ from s3_util import init_storage, get_object, put_object, list_objects
 
 
 def lambda_handler(event, context):
+    # RIEハートビートチェック対応
+    if isinstance(event, dict) and event.get("ping"):
+        return {"statusCode": 200, "body": "pong"}
+
     """
     S3操作を行うLambda関数
 

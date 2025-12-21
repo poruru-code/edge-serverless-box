@@ -3,10 +3,15 @@
 
 requestContextからユーザー名を取得して応答します。
 """
+
 import json
 
 
 def lambda_handler(event, context):
+    # RIEハートビートチェック対応
+    if isinstance(event, dict) and event.get("ping"):
+        return {"statusCode": 200, "body": "pong"}
+
     """
     Lambda関数のエントリーポイント
     
@@ -18,19 +23,15 @@ def lambda_handler(event, context):
         API Gateway互換のレスポンス
     """
     # requestContextからユーザー名を取得
-    username = event.get("requestContext", {}).get("authorizer", {}).get("cognito:username", "anonymous")
-    
+    username = (
+        event.get("requestContext", {}).get("authorizer", {}).get("cognito:username", "anonymous")
+    )
+
     # レスポンスボディ
-    response_body = {
-        "message": f"Hello, {username}!",
-        "event": event,
-        "function": "hello"
-    }
-    
+    response_body = {"message": f"Hello, {username}!", "event": event, "function": "hello"}
+
     return {
         "statusCode": 200,
-        "headers": {
-            "Content-Type": "application/json"
-        },
-        "body": json.dumps(response_body)
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(response_body),
     }

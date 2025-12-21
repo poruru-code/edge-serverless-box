@@ -4,6 +4,8 @@ import logging
 import os
 import asyncio
 from typing import Dict, Optional
+
+import httpx
 from .docker_adaptor import DockerAdaptor
 
 logger = logging.getLogger("manager.service")
@@ -107,17 +109,18 @@ class ContainerManager:
             return name
 
     async def _wait_for_readiness(self, host: str, port: int = 8080, timeout: int = 30) -> None:
+        """POST /invocations でRIEの起動を確認（AWS RIE標準方式）"""
+        url = f"http://{host}:{port}/2015-03-31/functions/function/invocations"
         start = time.time()
-        while time.time() - start < timeout:
-            try:
-                # Use asyncio.open_connection for non-blocking connect
-                # Need to handle host resolution if it is a container name
-                _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.0)
-                writer.close()
-                await writer.wait_closed()
-                return
-            except (OSError, asyncio.TimeoutError):
-                await asyncio.sleep(0.5)
+
+        async with httpx.AsyncClient() as client:
+            while time.time() - start < timeout:
+                try:
+                    response = await client.post(url, json={"ping": True}, timeout=1.0)
+                    if response.status_code == 200:
+                        return
+                except (httpx.RequestError, httpx.TimeoutException):
+                    await asyncio.sleep(0.5)
 
         logger.warning(f"Container {host} did not become ready in {timeout}s")
 

@@ -8,6 +8,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def lambda_handler(event, context):
+    # RIEハートビートチェック対応
+    if isinstance(event, dict) and event.get("ping"):
+        return {"statusCode": 200, "body": "pong"}
+
     print(f"Received event: {json.dumps(event)}")
 
     # Environment variables
