@@ -7,6 +7,7 @@ from typing import Dict, Optional
 import httpx
 from .docker_adaptor import DockerAdaptor
 from .config import config
+from services.common.core.http_client import HttpClientFactory
 
 logger = logging.getLogger("manager.service")
 
@@ -131,7 +132,8 @@ class ContainerManager:
         url = f"http://{host}:{port}/2015-03-31/functions/function/invocations"
         start = time.time()
 
-        async with httpx.AsyncClient() as client:
+        factory = HttpClientFactory(config)
+        async with factory.create_async_client() as client:
             while time.time() - start < timeout:
                 try:
                     response = await client.post(

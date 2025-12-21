@@ -12,12 +12,15 @@ from typing import Any
 import boto3
 from botocore.config import Config
 
-# SSL警告を抑制（自己署名証明書使用時）
-import urllib3
-
 from .layer_config import config
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# urllib3 warnings are handled per Boto3 session via verify param,
+# but boto3 uses urllib3 internally. If verify=False, warning might specifically appear.
+# However, we can disable it if verify is false.
+import urllib3
+
+if not config.VERIFY_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ def init_lambda_client():
     return boto3.client(
         "lambda",
         endpoint_url=endpoint,
-        verify=False,  # 自己署名証明書対応
+        verify=config.VERIFY_SSL,
         region_name=config.AWS_REGION,
         config=Config(
             retries={"max_attempts": config.LAMBDA_RETRIES},

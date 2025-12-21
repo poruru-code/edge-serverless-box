@@ -18,5 +18,8 @@ class LayerConfig:
     RUSTFS_ROOT_PASSWORD = os.environ.get("RUSTFS_ROOT_PASSWORD", "rustfsadmin")
     AWS_REGION = "ap-northeast-1"
 
+    # SSL Validation
+    VERIFY_SSL = os.environ.get("VERIFY_SSL", "false").lower() == "true"
+
 
 config = LayerConfig()

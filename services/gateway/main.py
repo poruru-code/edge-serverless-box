@@ -28,6 +28,7 @@ from .services.lambda_invoker import LambdaInvoker
 from .api.deps import UserIdDep, LambdaTargetDep
 from .core.logging_config import setup_logging
 from services.common.core.request_context import set_request_id, clear_request_id
+from services.common.core.http_client import HttpClientFactory
 from .core.exceptions import (
     global_exception_handler,
     http_exception_handler,
@@ -51,7 +52,9 @@ async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
     # Initialize shared HTTP client
     # timeout config can be fine-tuned
-    client = httpx.AsyncClient(timeout=config.LAMBDA_INVOKE_TIMEOUT)
+    factory = HttpClientFactory(config)
+    factory.configure_global_settings()
+    client = factory.create_async_client(timeout=config.LAMBDA_INVOKE_TIMEOUT)
 
     # Initialize Services
     function_registry = FunctionRegistry()

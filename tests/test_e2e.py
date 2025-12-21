@@ -19,12 +19,16 @@ import json
 
 import pytest
 import requests
-import urllib3
+
+# import urllib3  <-- Removed
+from services.common.core.http_client import HttpClientFactory
 
 from services.gateway.config import config
 
-# 自己署名証明書の警告を抑制
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Global SSL configuration
+factory = HttpClientFactory(config)
+factory.configure_global_settings()
+VERIFY_SSL = config.VERIFY_SSL
 
 # テスト用設定
 GATEWAY_PORT = os.getenv("GATEWAY_PORT", "443")
@@ -38,8 +42,9 @@ API_KEY = config.X_API_KEY
 # run_tests.py または .env.test で設定されている前提
 AUTH_USER = os.environ["AUTH_USER"]
 AUTH_PASS = os.environ["AUTH_PASS"]
-
-VERIFY_SSL = False
+# run_tests.py または .env.test で設定されている前提
+AUTH_USER = os.environ["AUTH_USER"]
+AUTH_PASS = os.environ["AUTH_PASS"]
 
 # Timeouts & Retries
 DEFAULT_REQUEST_TIMEOUT = 5

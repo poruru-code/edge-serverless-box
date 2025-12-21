@@ -12,6 +12,7 @@ class BaseAppConfig(BaseSettings):
     """
 
     LOG_LEVEL: str = Field(default="INFO", description="ログレベル")
+    VERIFY_SSL: bool = Field(default=False, description="SSL証明書の検証を行うか")
 
     # ===== Lambda Container Defaults =====
     LAMBDA_PORT: int = Field(default=8080, description="Lambda RIEコンテナのポート番号")
