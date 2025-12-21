@@ -274,7 +274,11 @@ async def gateway_handler(
             status_code=result["status_code"], content=result["content"], headers=result["headers"]
         )
 
-    except httpx.RequestError:
+    except httpx.RequestError as e:
+        # Lambda 接続失敗時はキャッシュを無効化
+        # 次回リクエストで Manager に再問い合わせし、コンテナを再起動
+        logger.warning(f"Lambda connection failed for {target.container_name}: {e}")
+        request.app.state.manager_client.invalidate_cache(target.container_name)
         return JSONResponse(status_code=502, content={"message": "Bad Gateway"})
 
 

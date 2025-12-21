@@ -126,3 +126,96 @@ async def test_request_id_propagation(mock_client):
     assert kwargs["headers"]["X-Request-Id"] == test_request_id
 
     clear_request_id()
+
+
+# ===========================================
+# Cache Integration Tests (TDD Red Phase 2)
+# ===========================================
+
+
+@pytest.mark.asyncio
+async def test_ensure_container_cache_hit(mock_client):
+    """キャッシュヒット時は Manager への HTTP リクエストをスキップ"""
+    from services.gateway.services.container_cache import ContainerHostCache
+
+    cache = ContainerHostCache()
+    cache.set("test-func", "cached-host")
+
+    manager_client = ManagerClient(mock_client, cache=cache)
+    host = await manager_client.ensure_container("test-func")
+
+    assert host == "cached-host"
+    mock_client.post.assert_not_called()  # HTTP リクエストなし
+
+
+@pytest.mark.asyncio
+async def test_ensure_container_cache_miss_then_cache(mock_client):
+    """キャッシュミス時は Manager を呼び出し、結果をキャッシュ"""
+    from services.gateway.services.container_cache import ContainerHostCache
+
+    cache = ContainerHostCache()
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"host": "new-host"}
+    mock_response.raise_for_status = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    manager_client = ManagerClient(mock_client, cache=cache)
+
+    # First call - cache miss, should call Manager
+    host1 = await manager_client.ensure_container("test-func")
+    assert host1 == "new-host"
+    assert mock_client.post.call_count == 1
+
+    # Second call - cache hit, should NOT call Manager
+    host2 = await manager_client.ensure_container("test-func")
+    assert host2 == "new-host"
+    assert mock_client.post.call_count == 1  # Still 1, no new call
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_clears_entry(mock_client):
+    """ManagerClient.invalidate_cache() でキャッシュがクリアされる"""
+    from services.gateway.services.container_cache import ContainerHostCache
+
+    cache = ContainerHostCache()
+    cache.set("test-func", "cached-host")
+
+    manager_client = ManagerClient(mock_client, cache=cache)
+
+    # Invalidate cache
+    manager_client.invalidate_cache("test-func")
+
+    # Cache should be cleared
+    assert cache.get("test-func") is None
+
+
+@pytest.mark.asyncio
+async def test_cache_miss_retry_after_invalidation(mock_client):
+    """キャッシュ無効化後は Manager に再問い合わせする"""
+    from services.gateway.services.container_cache import ContainerHostCache
+
+    cache = ContainerHostCache()
+    cache.set("test-func", "old-host")
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"host": "new-host"}
+    mock_response.raise_for_status = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    manager_client = ManagerClient(mock_client, cache=cache)
+
+    # First call - cache hit, no Manager call
+    host1 = await manager_client.ensure_container("test-func")
+    assert host1 == "old-host"
+    assert mock_client.post.call_count == 0
+
+    # Invalidate cache (simulating Lambda connection failure)
+    manager_client.invalidate_cache("test-func")
+
+    # Second call - cache miss, should call Manager
+    host2 = await manager_client.ensure_container("test-func")
+    assert host2 == "new-host"
+    assert mock_client.post.call_count == 1  # Now called Manager

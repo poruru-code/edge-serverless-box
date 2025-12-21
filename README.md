@@ -21,6 +21,7 @@ Docker in Docker (DinD) 技術を活用した、オンプレミス環境向け�
    - **関心の分離**: Gateway は認証とルーティングに、Manager はライフサイクル管理に専念することで、コードの肥大化と密結合を防止しています。
 3. **パフォーマンス**:
    - Gateway は `httpx` による完全非同期プロキシとして動作し、多数の同時リクエストを効率的に処理します。
+   - **コンテナホストキャッシュ**: Gateway はコンテナの起動状態を TTL 付き LRU キャッシュで保持し、Warm Start 時は Manager への問い合わせをスキップしてレイテンシを削減します。
 
 ### 構成図
 
@@ -92,6 +93,7 @@ docker compose down
 |--------|-----------|------|
 | `IDLE_TIMEOUT_MINUTES` | `5` | アイドル状態のLambdaコンテナを停止するまでの分数 |
 | `LAMBDA_NETWORK` | `onpre-internal-network` | Lambdaコンテナが参加するDockerネットワーク名 |
+| `CONTAINER_CACHE_TTL` | `30` | Gateway のコンテナホストキャッシュ TTL（秒） |
 
 
 ```bash
@@ -150,3 +152,4 @@ AWS SDK等からは `http://localhost:9000` をエンドポイントとして指
 - [クライアント認証仕様](docs/client-auth-spec.md)
 - [ログ収集アダプター](docs/local-logging-adapter.md)
 - [ネットワーク解決の最適化（IPベース）](docs/network-optimization.md)
+- [コンテナキャッシュによるレイテンシ最適化](docs/container-cache.md)

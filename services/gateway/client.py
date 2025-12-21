@@ -8,6 +8,7 @@ from .core.exceptions import (
     ManagerTimeoutError,
     ManagerUnreachableError,
 )
+from .services.container_cache import ContainerHostCache
 from services.common.core.request_context import get_request_id
 
 logger = logging.getLogger("gateway.client")
@@ -16,8 +17,19 @@ MANAGER_URL = os.getenv("MANAGER_URL", "http://manager:8081")
 
 
 class ManagerClient:
-    def __init__(self, http_client: httpx.AsyncClient):
+    def __init__(self, http_client: httpx.AsyncClient, cache: Optional[ContainerHostCache] = None):
         self.client = http_client
+        self.cache = cache or ContainerHostCache()
+
+    def invalidate_cache(self, function_name: str) -> None:
+        """
+        Invalidate cache for a specific function.
+
+        Call this when Lambda connection fails to ensure next request
+        re-fetches container info from Manager.
+        """
+        self.cache.invalidate(function_name)
+        logger.debug(f"Cache invalidated for {function_name}")
 
     async def ensure_container(
         self, function_name: str, image: Optional[str] = None, env: Optional[Dict[str, str]] = None
@@ -25,12 +37,21 @@ class ManagerClient:
         """
         Calls Manager Service to ensure container is running and get its host/IP.
 
+        Uses TTL-based cache to avoid redundant Manager calls on warm starts.
+
         Raises:
             FunctionNotFoundError: 関数/イメージが存在しない (404)
             ManagerError: Docker API エラーなど (400, 409など)
             ManagerTimeoutError: タイムアウト (408)
             ManagerUnreachableError: Manager への接続失敗
         """
+        # 1. キャッシュチェック
+        cached_host = self.cache.get(function_name)
+        if cached_host:
+            logger.debug(f"Cache hit for {function_name}: {cached_host}")
+            return cached_host
+
+        # 2. キャッシュミス → Manager に問い合わせ
         url = f"{MANAGER_URL}/containers/ensure"
         payload = {"function_name": function_name, "image": image, "env": env or {}}
 
@@ -49,7 +70,13 @@ class ManagerClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["host"]
+            host = data["host"]
+
+            # 3. 成功時にキャッシュ登録
+            self.cache.set(function_name, host)
+            logger.debug(f"Cached {function_name}: {host}")
+
+            return host
 
         except httpx.TimeoutException as e:
             logger.error(f"Manager request timed out: {e}")
