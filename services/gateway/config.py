@@ -5,6 +5,7 @@ Gateway設定定義
 pydantic-settings を使用して型安全性とデフォルト値を管理します。
 """
 
+import sys
 from pydantic import Field
 from services.common.core.config import BaseAppConfig
 
@@ -63,6 +64,6 @@ try:
 except Exception as e:
     # 開発環境など .env がない場合や必須変数が欠けている場合のフォールバックは
     # 必要に応じて検討するが、基本はエラーで落とす
-    print(f"Failed to load configuration: {e}")
+    sys.stderr.write(f"Failed to load configuration: {e}\n")
     # テスト実行時などのために、一部デフォルトで許容する場合のロジックを入れることも可能
     raise

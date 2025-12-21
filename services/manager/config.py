@@ -2,6 +2,7 @@
 Manager設定定義
 """
 
+import sys
 from pydantic import Field
 from services.common.core.config import BaseAppConfig
 
@@ -23,5 +24,5 @@ class ManagerConfig(BaseAppConfig):
 try:
     config = ManagerConfig()
 except Exception as e:
-    print(f"Failed to load Manager configuration: {e}")
+    sys.stderr.write(f"Failed to load Manager configuration: {e}\n")
     raise

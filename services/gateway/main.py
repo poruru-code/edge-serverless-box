@@ -93,7 +93,7 @@ async def request_id_middleware(request: Request, call_next):
     """
     import time
 
-    start_time = time.time()
+    start_time = time.perf_counter()
 
     # X-Request-Id ヘッダーから取得、なければ生成
     request_id = request.headers.get("X-Request-Id")
@@ -105,7 +105,7 @@ async def request_id_middleware(request: Request, call_next):
         response.headers["X-Request-Id"] = request_id
 
         # Calculate process time
-        process_time = time.time() - start_time
+        process_time = time.perf_counter() - start_time
         process_time_ms = round(process_time * 1000, 2)
 
         # Structured Access Log
