@@ -11,8 +11,10 @@ from .service import ContainerManager
 import docker.errors
 from services.common.core.request_context import set_request_id, clear_request_id, get_request_id
 
+from .core.logging_config import setup_logging
+
 # Logger setup
-# YAML設定で定義されるため、ここではロガーを取得するだけ
+setup_logging()
 logger = logging.getLogger("manager.main")
 # レベル設定などはYAML側で行う
 

@@ -22,6 +22,7 @@ from pathlib import Path
 # テスト用の環境変数デフォルト値設定
 os.environ.setdefault("JWT_SECRET_KEY", "dev-secret-key-change-in-production")
 os.environ.setdefault("X_API_KEY", "dev-api-key-change-in-production")
+os.environ.setdefault("LOG_LEVEL", "DEBUG")  # E2Eテストでログレベル検証を行うため
 
 
 # プロジェクトルートを取得

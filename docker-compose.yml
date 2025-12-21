@@ -137,6 +137,7 @@ services:
       - GATEWAY_INTERNAL_URL=https://onpre-gateway
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-in-production}
       - X_API_KEY=${X_API_KEY:-dev-api-key-change-in-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     logging:
       driver: fluentd
       options:
@@ -172,6 +173,7 @@ services:
     environment:
       - CONTAINERS_NETWORK=${LAMBDA_NETWORK:-onpre-internal-network} # Internal test network
       - IDLE_TIMEOUT_MINUTES=${IDLE_TIMEOUT_MINUTES:-5}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     logging:
       driver: fluentd
       options:

@@ -15,4 +15,4 @@ COPY services/common /app/services/common
 COPY services/manager /app/services/manager
 COPY config /app/config
 
-CMD ["uvicorn", "services.manager.main:app", "--host", "0.0.0.0", "--port", "8081", "--log-config", "/app/config/manager_log.yaml"]
+CMD ["uvicorn", "services.manager.main:app", "--host", "0.0.0.0", "--port", "8081"]

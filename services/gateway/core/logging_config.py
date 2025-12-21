@@ -1,16 +1,10 @@
-import logging.config
-import yaml
+from services.common.core.logging_config import setup_logging as common_setup_logging
 import os
+
 
 def setup_logging():
     """
     YAML設定ファイルを読み込み、ロギングを初期化します。
     """
     config_path = os.getenv("LOG_CONFIG_PATH", "/app/config/gateway_log.yaml")
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-            logging.config.dictConfig(config)
-    else:
-        # フォールバック
-        logging.basicConfig(level=logging.INFO)
+    common_setup_logging(config_path)

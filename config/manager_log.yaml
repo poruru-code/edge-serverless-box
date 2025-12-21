@@ -13,7 +13,7 @@ handlers:
 
 loggers:
   uvicorn:
-    level: INFO
+    level: ${LOG_LEVEL}
     handlers: [console]
     propagate: false
 
@@ -23,7 +23,7 @@ loggers:
     propagate: false
 
   uvicorn.error:
-    level: INFO
+    level: ${LOG_LEVEL}
     handlers: [console]
     propagate: false
 
@@ -38,6 +38,12 @@ loggers:
     handlers: [console]
     propagate: false
 
+  # Suppress noisy libraries
+  apscheduler:
+    level: WARNING
+    handlers: [console]
+    propagate: false
+
 root:
-  level: INFO
+  level: ${LOG_LEVEL}
   handlers: [console]

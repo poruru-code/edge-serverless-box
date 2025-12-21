@@ -5,6 +5,7 @@
 defaults:
   environment:
     LAMBDA_ENDPOINT: "https://onpre-gateway:443"
+    LOG_LEVEL: "${LOG_LEVEL}"
 
 functions:
   lambda-s3-test:

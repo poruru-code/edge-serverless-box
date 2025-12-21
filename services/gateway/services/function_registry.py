@@ -8,6 +8,8 @@ functions.yml を読み込み、関数名→設定のマッピングを提供し
 from typing import Dict, Any, Optional
 import yaml
 import logging
+import os
+import string
 
 from ..config import config
 
@@ -29,7 +31,16 @@ class FunctionRegistry:
         """
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+                # string.Templateを使用して環境変数を置換
+                template = string.Template(f.read())
+
+                # デフォルト値のマッピング作成
+                mapping = os.environ.copy()
+                if "LOG_LEVEL" not in mapping:
+                    mapping["LOG_LEVEL"] = "INFO"
+
+                content = template.safe_substitute(mapping)
+                cfg = yaml.safe_load(content) or {}
 
             self._defaults = cfg.get("defaults", {})
             self._registry = cfg.get("functions", {})

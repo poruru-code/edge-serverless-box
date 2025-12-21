@@ -4,8 +4,13 @@ Custom JSON Logger implementation optimized for VictoriaLogs.
 """
 
 import logging
+import logging.config
 import json
+import os
+import string
 from datetime import datetime, timezone
+
+import yaml
 
 
 class CustomJsonFormatter(logging.Formatter):
@@ -79,9 +84,24 @@ class CustomJsonFormatter(logging.Formatter):
         return json.dumps(log_data, ensure_ascii=False)
 
 
-def setup_logging(config_path: str = None):
+def setup_logging(config_path: str):
     """
-    Basic logging setup helper.
-    Actually logging should be configured via dictionary or YAML usually.
+    YAML設定ファイルを読み込み、環境変数を置換した上でロギングを初期化します。
     """
-    pass
+    if not os.path.exists(config_path):
+        logging.basicConfig(level=logging.INFO)
+        return
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        # string.Templateを使用して環境変数を置換
+        # ${LOG_LEVEL} などの形式に対応
+        template = string.Template(f.read())
+
+        # デフォルト値の設定
+        mapping = os.environ.copy()
+        if "LOG_LEVEL" not in mapping:
+            mapping["LOG_LEVEL"] = "INFO"
+
+        content = template.safe_substitute(mapping)
+        config = yaml.safe_load(content)
+        logging.config.dictConfig(config)

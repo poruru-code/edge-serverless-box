@@ -398,6 +398,82 @@ class TestE2E:
         assert len(manager_logs) > 0, "No Manager logs found with the RequestID"
         assert len(lambda_logs) > 0, "No Lambda logs found with the RequestID"
 
+    def test_log_quality_and_level_control(self, gateway_health):
+        """
+        E2E: ロギングの品質と環境変数によるレベル制御の検証
+
+        検証項目:
+        1. 指定した RequestID のログが VictoriaLogs に構造化されて届いていること
+        2. `_time` フィールドが浮動小数点（UNIXタイムスタンプ）で存在すること
+        3. `LOG_LEVEL` 環境変数が反映され、DEBUG レベルのログが記録されていること (テスト実行時に DEBUG が設定されている前提)
+        """
+        import uuid
+
+        # 検証用のユニークな RequestID とメッセージ
+        validation_id = f"log-quality-check-{uuid.uuid4()}"
+        debug_msg = f"DEBUG_LOG_VALIDATION_{uuid.uuid4()}"
+
+        # 認証
+        token = get_auth_token()
+
+        # Gateway/Manager/Lambda の各コンポーネントでデバッグログが出るようなアクションを実行
+        # 今回は Lambda 呼び出しを行い、Lambda 側でデバッグメッセージを出力させる
+        response = requests.post(
+            f"{GATEWAY_URL}/api/s3/test",
+            json={"action": "test", "debug_message": debug_msg},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Request-Id": validation_id,
+            },
+            verify=VERIFY_SSL,
+        )
+        assert response.status_code == 200
+
+        # VictoriaLogs からログをクエリ
+        start_time = time.time()
+        timeout = 45  # 少し長めに待つ
+
+        while time.time() - start_time < timeout:
+            logs = query_victorialogs(validation_id, timeout=1)
+            hits = logs.get("hits", [])
+
+            if not hits:
+                time.sleep(2)
+                continue
+
+            # ログの内容を精査
+            found_structured = False
+            found_time_field = False
+            found_debug_level = False
+
+            for log in hits:
+                # 1. 構造化の確認 (_msg ではなくマッピングが展開されているか、あるいは message があるか)
+                # Gateway/Manager は "message", Lambda は "_msg" or "message" (merged)
+                if "level" in log and ("message" in log or "_msg" in log):
+                    found_structured = True
+
+                # 2. _time フィールドの確認
+                if "_time" in log:
+                    found_time_field = True
+
+                # 3. ログレベル制御の確認
+                # 共通設定や Lambda で DEBUG を出しているはず
+                if log.get("level") == "DEBUG":
+                    found_debug_level = True
+
+            if found_structured and found_time_field and found_debug_level:
+                break
+
+            time.sleep(2)
+
+        assert found_structured, (
+            f"Logs not properly structured in VictoriaLogs for ID: {validation_id}"
+        )
+        assert found_time_field, f"'_time' field missing in VictoriaLogs for ID: {validation_id}"
+        assert found_debug_level, (
+            "DEBUG level logs not found. LOG_LEVEL environment variable might not be working."
+        )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -47,22 +47,33 @@ class LogClientAdapter(ABC):
 # ============================================
 # ローカル環境用アダプター (VictoriaLogs送信)
 # ============================================
+# ============================================
+# ローカル環境用アダプター (VictoriaLogs送信)
+# ============================================
 class LocalLogClient(LogClientAdapter):
-    VICTORIALOGS_URL = "http://victorialogs:9428/insert/jsonline"
-
     def put_log_events(self, group_name: str, stream_name: str, log_events: list):
         import json
 
         for event in log_events:
+            # _time を UNIX 秒で設定 (VictoriaLogs がこれを優先する)
+            # ミリ秒精度を含めるため float で渡す
             log_entry = {
-                "_msg": event["message"],
-                "_time": event["timestamp"] / 1000,
-                "log_group": group_name,
-                "log_stream": stream_name,
+                "_time": event["timestamp"] / 1000.0,
             }
-            # Direct stdout output as JSON line.
-            # Docker Logging Driver (Fluentd) will pick this up.
-            print(json.dumps(log_entry))
+
+            # 元のイベントからデータをコピー
+            data = event.copy()
+            data.pop("timestamp", None)  # _time と重複するため削除
+
+            # message フィールドを _msg に変換 (VictoriaLogs のメインメッセージ用)
+            if "message" in data:
+                log_entry["_msg"] = data.pop("message")
+
+            # 残りのフィールドをフラットにマージ
+            log_entry.update(data)
+
+            # Docker環境では標準出力がそのままログとして収集される
+            print(json.dumps(log_entry, ensure_ascii=False))
 
     def create_log_group(self, group_name: str):
         pass
@@ -92,9 +103,25 @@ class CloudWatchLogClient(LogClientAdapter):
         self._s3 = boto3.resource("s3")
 
     def put_log_events(self, group_name: str, stream_name: str, log_events: list):
+        import json
+
+        # CloudWatch Logs は指定された形式を維持する必要がある
+        # message フィールドが文字列である必要があるため、辞書の場合は JSON 化する
+        formatted_events = []
+        for event in log_events:
+            ts = event.pop("timestamp")
+            # すでに構造化されている場合を考慮し、message 以外があれば全体を JSON 化する
+            # ただし CloudWatch Logs 上で見やすいように、テキスト形式も維持しつつ構造化する工夫
+            if "message" in event and len(event) == 2:  # level と message だけの場合
+                msg = f"[{event['level']}] {event['message']}"
+            else:
+                msg = json.dumps(event, ensure_ascii=False)
+
+            formatted_events.append({"timestamp": ts, "message": msg})
+
         try:
             self._client.put_log_events(
-                logGroupName=group_name, logStreamName=stream_name, logEvents=log_events
+                logGroupName=group_name, logStreamName=stream_name, logEvents=formatted_events
             )
         except Exception as e:
             now_str = datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")
@@ -141,13 +168,35 @@ class CloudWatchLogger:
         self.group_name = f"{self.lambda_path}/{user_name}"
         self.stream_name = os.environ.get(ENVIRON_LOG_STREAM_NAME, "local-stream")
 
-        self.is_output_debug_log = os.environ.get(ENVIRON_LOG_DEBUG, "").lower() == "true"
+        # ログレベルの設定
+        # LOG_LEVEL があれば優先、なければ従来の ENVIRON_LOG_DEBUG などを参照
+        env_log_level = os.environ.get("LOG_LEVEL")
+        if env_log_level:
+            self.log_level = env_log_level.upper()
+        elif os.environ.get(ENVIRON_LOG_DEBUG, "").lower() == "true":
+            self.log_level = LOG_CATEGORY_DEBUG
+        else:
+            self.log_level = LOG_CATEGORY_INFO
+
         self.is_output_debug_large_data = (
             os.environ.get(ENVIRON_LOG_DEBUG_LARGE_DATA, "").lower() == "true"
         )
 
         self.log_client.create_log_group(self.group_name)
         self.log_client.create_log_stream(self.group_name, self.stream_name)
+
+    def _should_log(self, category: str) -> bool:
+        levels = {
+            LOG_CATEGORY_DEBUG: 10,
+            LOG_CATEGORY_DEBUG_LARGE: 10,
+            LOG_CATEGORY_INFO: 20,
+            LOG_CATEGORY_WARN: 30,
+            LOG_CATEGORY_ERROR: 40,
+        }
+        # 不明なカテゴリは INFO 扱い
+        target = levels.get(category, 20)
+        current = levels.get(self.log_level, 20)
+        return target >= current
 
     def error(self, func):
         self._logging_message(LOG_CATEGORY_ERROR, func())
@@ -159,8 +208,7 @@ class CloudWatchLogger:
         self._logging_message(LOG_CATEGORY_INFO, func())
 
     def debug(self, func):
-        if self.is_output_debug_log:
-            self._logging_message(LOG_CATEGORY_DEBUG, func())
+        self._logging_message(LOG_CATEGORY_DEBUG, func())
 
     def output_debug_large_data(self, item_name: str, func):
         if self.is_output_debug_large_data:
@@ -171,9 +219,19 @@ class CloudWatchLogger:
             except Exception as e:
                 self._logging_message(LOG_CATEGORY_ERROR, f"LargeDataError:{e}")
 
-    def _logging_message(self, log_category: str, message: str):
-        timestamp = int(time.time()) * 1000
-        dt_now = datetime.datetime.now()
-        log_message = f"{dt_now.strftime('%Y/%m/%d %H:%M:%S.%f')} [{log_category}] {message}"
-        log_event = {"timestamp": timestamp, "message": log_message}
+    def _logging_message(self, log_category: str, content):
+        if not self._should_log(log_category):
+            return
+
+        # タイムスタンプ（ミリ秒）
+        timestamp_ms = int(time.time() * 1000)
+
+        # log_event の作成
+        if isinstance(content, dict):
+            # content が辞書ならマージ。既存のレベルやタイムスタンプがあれば上書きされる
+            log_event = {"timestamp": timestamp_ms, "level": log_category, **content}
+        else:
+            # content が文字列なら message フィールドへ
+            log_event = {"timestamp": timestamp_ms, "level": log_category, "message": str(content)}
+
         self.log_client.put_log_events(self.group_name, self.stream_name, [log_event])
