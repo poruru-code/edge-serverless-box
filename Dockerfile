@@ -4,26 +4,16 @@
 FROM docker:24-dind
 
 # 必要なツールをインストール
-RUN apk add --no-cache bash curl git docker-cli-compose
+RUN apk add --no-cache bash curl git python3 py3-pip
 
 WORKDIR /app
 
-# Lambda関数のイメージ（.tar）を事前にコピー（ビルドプロセスの簡素化のため）
-# 注: 本番ではボリュームマウントやレジストリ経由が望ましいが、現状の構成を踏襲
-COPY build/lambda-images/*.tar /app/build/lambda-images/
+# プロジェクト全体をコピー
+COPY . /app/
 
-# 内部用Composeファイルをコピー
-COPY docker-compose.yml /app/docker-compose.yml
-
-# Gatewayアプリのビルドコンテキスト用（内部でビルドする場合）
-# 今回はGatewayもイメージとして扱うため、事前にビルド済みのものを使うか、
-# ここでビルドコンテキストを用意する。
-# ユーザー提案では「image: gateway-api:latest」となっているため、
-# 親コンテナ起動時に内部でビルドするか、loadする必要がある。
-# 簡略化のため、Gatewayのコードもコピーしておく
-COPY gateway/ /app/gateway/
-COPY lambda_functions/ /app/lambda_functions/
-COPY pyproject.toml /app/
+# 仮想環境を使わずシステム環境にインストール（DinDコンテナ専用のため）
+# PEP 668 の制約を回避するために --break-system-packages を使用
+RUN pip install --break-system-packages -e ".[dev]"
 
 # エントリーポイントスクリプト
 COPY entrypoint.sh /entrypoint.sh
