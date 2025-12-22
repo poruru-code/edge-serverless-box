@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from services.gateway.main import app
+from services.gateway.core.exceptions import FunctionNotFoundError
 
 
 # Mock dependencies
@@ -76,4 +77,37 @@ def test_gateway_handler_propagates_request_id(mock_proxy, mock_ensure_container
     )
 
     # Clean up
+    app.dependency_overrides = {}
+
+
+def test_gateway_handler_returns_404_when_function_not_found(mock_proxy, mock_ensure_container):
+    """
+    FunctionNotFoundError が発生した場合に 404 を返すことを検証
+    """
+    # Override dependencies
+    from services.gateway.api.deps import verify_authorization, resolve_lambda_target, get_manager_client
+    from services.gateway.models import TargetFunction
+
+    app.dependency_overrides[verify_authorization] = lambda: "test-user"
+    app.dependency_overrides[resolve_lambda_target] = lambda: TargetFunction(
+        container_name="missing-container",
+        function_config={"image": "img", "environment": {}},
+        path_params={},
+        route_path="/api/missing",
+    )
+
+    # Mock ManagerClient to raise FunctionNotFoundError
+    mock_manager = AsyncMock()
+    mock_manager.ensure_container.side_effect = FunctionNotFoundError("missing-container")
+    app.dependency_overrides[get_manager_client] = lambda: mock_manager
+
+    # Execute
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+    response = client.get("/api/missing", headers={"Authorization": "Bearer token"})
+
+    # Verify
+    assert response.status_code == 404
+    assert response.json() == {"message": "Function not found on manager"}
+
     app.dependency_overrides = {}

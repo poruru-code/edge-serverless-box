@@ -15,6 +15,12 @@ import httpx
 
 from services.common.core.request_context import get_request_id
 from ..config import config
+from ..models.aws_v1 import (
+    APIGatewayProxyEvent,
+    ApiGatewayRequestContext,
+    ApiGatewayIdentity,
+    ApiGatewayAuthorizer,
+)
 
 
 def build_event(
@@ -26,13 +32,6 @@ def build_event(
     Pydantic モデルを使用して型安全にイベントを構築し、
     AWS API Gateway v1 形式に準拠した辞書を返す。
     """
-    from ..models.aws_v1 import (
-        APIGatewayProxyEvent,
-        ApiGatewayRequestContext,
-        ApiGatewayIdentity,
-        ApiGatewayAuthorizer,
-    )
-
     # gzip圧縮されているか確認
     is_base64 = "gzip" in request.headers.get("content-encoding", "").lower()
 
@@ -88,7 +87,7 @@ def build_event(
             ),
             authorizer=ApiGatewayAuthorizer(
                 claims={"cognito:username": user_id, "username": user_id},
-                **{"cognito:username": user_id},  # エイリアスを使用して設定
+                cognito_username=user_id,
             ),
             requestId=request_id,
             path=str(request.url.path),

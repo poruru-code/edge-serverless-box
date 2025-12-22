@@ -42,6 +42,7 @@ from .core.exceptions import (
     validation_exception_handler,
     ContainerStartError,
     LambdaExecutionError,
+    FunctionNotFoundError,
 )
 
 # Logger setup
@@ -258,6 +259,12 @@ async def gateway_handler(
             function_name=target.container_name,
             image=target.function_config.get("image"),
             env=target.function_config.get("environment", {}),
+        )
+    except FunctionNotFoundError:
+        logger.warning(f"Function definition not found on manager for {target.container_name}")
+        return JSONResponse(
+            status_code=404,
+            content={"message": "Function not found on manager"},
         )
     except Exception as e:
         logger.error(f"Failed to ensure container {target.container_name}: {e}", exc_info=True)
