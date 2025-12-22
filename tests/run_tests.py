@@ -256,6 +256,33 @@ def wait_for_scylladb() -> bool:
     return False
 
 
+def run_provisioner():
+    """DynamoDBテーブル/S3バケットのプロビジョニングを実行"""
+    print("[2.8/4] Running resource provisioner...")
+
+    cmd = [sys.executable, "-m", "tools.provisioner.main"]
+
+    # E2E用のテンプレートを指定
+    cmd.extend(["tools/provisioner/main.py", "--template", "tests/e2e/template.yaml"])
+    # Note: tools.provisioner.current main implementation might need adjustment for args,
+    # but based on reading it takes optional template path or defaults to tests/e2e/template.yaml
+    # Checking tools/provisioner/main.py again...
+    # It doesn't use argparse fully for template path in main(template_path=None).
+    # It is designed to be imported or run directly.
+    # If run directly: `if __name__ == "__main__": main()` calls main() with defaults.
+    # So running it as module `python -m tools.provisioner.main` works if defaults are correct.
+    # Default is `project_root / "tests/e2e/template.yaml"`. This is correct for E2E.
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "tools.provisioner.main"], cwd=PROJECT_ROOT, check=True
+        )
+        print("  Resources provisioned successfully!")
+    except subprocess.CalledProcessError as e:
+        print(f"Error provisioning resources: {e}")
+        sys.exit(1)
+
+
 def generate_lambda_files():
     """SAMテンプレートからDockerfile/configを生成"""
     print("[1.3/4] Generating Lambda files from SAM template...")
@@ -499,6 +526,9 @@ def main():
             cmd.extend(["logs", "database"])
             run_command(cmd, check=False)
             return 1
+
+        # リソースプロビジョニング (ScyllaDB起動後)
+        run_provisioner()
 
         if not wait_for_gateway():
             # ログを表示
