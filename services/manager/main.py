@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
 
     yield
     # Shutdown logic
+    manager.shutdown()
     scheduler.shutdown()
 
 

@@ -4,6 +4,7 @@ import logging
 from ..config import GatewayConfig
 from ..core.exceptions import (
     FunctionNotFoundError,
+    ContainerStartError,
     ManagerError,
     ManagerTimeoutError,
     ManagerUnreachableError,
@@ -74,6 +75,9 @@ class HttpContainerManager:
 
             if status == 404:
                 raise FunctionNotFoundError(function_name) from e
+            elif status == 503:
+                # 503 Service Unavailable -> ContainerStartError
+                raise ContainerStartError(function_name, Exception(detail)) from e
             elif status in [400, 408, 409]:
                 raise ManagerError(status, detail) from e
             else:

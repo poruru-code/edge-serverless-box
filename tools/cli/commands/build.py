@@ -4,7 +4,7 @@ from tools.cli.config import PROJECT_ROOT, E2E_DIR, TEMPLATE_YAML
 from tools.cli.core import logging
 
 
-def build_function_images(no_cache=False):
+def build_function_images(no_cache=False, verbose=False):
     """
     生成されたDockerfileを見つけてイメージをビルドする
     """
@@ -39,8 +39,16 @@ def build_function_images(no_cache=False):
             print(f" {logging.Color.GREEN}✅{logging.Color.END}")
         except Exception as e:
             print(f" {logging.Color.RED}❌{logging.Color.END}")
-            logging.error(f"Build failed for {image_tag}: {e}")
-            raise
+            if verbose:
+                logging.error(f"Build failed for {image_tag}: {e}")
+                raise
+            else:
+                logging.error(f"Build failed for {image_tag}. Use --verbose for details.")
+                # Non-verbose: exit or raise without trace?
+                # CLI usually should stop on error.
+                import sys
+
+                sys.exit(1)
 
 
 def run(args):
@@ -65,6 +73,7 @@ def run(args):
 
     # 2. イメージビルド
     no_cache = getattr(args, "no_cache", False)
-    build_function_images(no_cache=no_cache)
+    verbose = getattr(args, "verbose", False)
+    build_function_images(no_cache=no_cache, verbose=verbose)
 
     logging.success("Build complete.")

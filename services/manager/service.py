@@ -221,3 +221,8 @@ class ContainerManager:
 
         except Exception as e:
             logger.error(f"Failed to sync with Docker: {e}", exc_info=True)
+
+    def shutdown(self):
+        """Clean up resources (thread pools, etc.)"""
+        logger.info("Shutting down ContainerManager...")
+        self.docker.shutdown()
