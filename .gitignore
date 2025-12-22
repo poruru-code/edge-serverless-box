@@ -10,6 +10,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!lib/sitecustomize.py
 lib64/
 parts/
 sdist/

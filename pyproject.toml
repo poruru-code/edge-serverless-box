@@ -42,6 +42,7 @@ dev = [
     "ruff>=0.1.6",
     "lefthook",  # Git hooks manager
     "cryptography>=41.0.0",  # SSL証明書生成用
+    "jinja2>=3.1",  # SAM Generator用
 ]
 
 [build-system]

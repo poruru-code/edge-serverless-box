@@ -1,0 +1,10 @@
+# システム必須の設定 - 手動管理
+# このファイルはジェネレータによって変更されません
+
+defaults:
+  environment:
+    LAMBDA_ENDPOINT: "https://onpre-gateway:443"
+    LOG_LEVEL: "${LOG_LEVEL}"
+    AWS_ACCESS_KEY_ID: "rustfsadmin"
+    AWS_SECRET_ACCESS_KEY: "rustfsadmin"
+    AWS_DEFAULT_REGION: "ap-northeast-1"
