@@ -82,6 +82,15 @@ class LambdaInvoker:
             )
             return response
         except httpx.RequestError as e:
+            logger.error(
+                f"Lambda invocation failed for function '{function_name}'",
+                extra={
+                    "function_name": function_name,
+                    "target_url": rie_url,
+                    "error_type": type(e).__name__,
+                    "error_detail": str(e),
+                },
+            )
             raise LambdaExecutionError(function_name, e) from e
 
 

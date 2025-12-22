@@ -45,3 +45,16 @@ def test_manager_config_lambda_defaults():
     assert config.LAMBDA_PORT == 8080
     assert config.READINESS_TIMEOUT == 30
     assert config.DOCKER_DAEMON_TIMEOUT == 30
+
+
+def test_manager_config_docker_settings():
+    """
+    TDD Red: DockerAdaptor用の設定フィールドが存在することを検証
+    """
+    config = ManagerConfig()
+    # Docker専用スレッドプールのワーカー数
+    assert hasattr(config, "DOCKER_MAX_WORKERS")
+    assert config.DOCKER_MAX_WORKERS == 20
+    # Dockerクライアントタイムアウト
+    assert hasattr(config, "DOCKER_CLIENT_TIMEOUT")
+    assert config.DOCKER_CLIENT_TIMEOUT == 60

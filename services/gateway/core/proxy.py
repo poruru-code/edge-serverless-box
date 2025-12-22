@@ -7,6 +7,7 @@ API Gateway Lambda Proxy Integration互換のイベント構築と
 
 import base64
 import json
+import logging
 import time
 from typing import Dict, Any
 
@@ -21,6 +22,8 @@ from ..models.aws_v1 import (
     ApiGatewayIdentity,
     ApiGatewayAuthorizer,
 )
+
+logger = logging.getLogger("gateway.proxy")
 
 
 def build_event(
@@ -173,7 +176,13 @@ def parse_lambda_response(lambda_response: httpx.Response) -> Dict[str, Any]:
                 try:
                     response_body = json.loads(response_body)
                 except json.JSONDecodeError:
-                    pass
+                    logger.warning(
+                        "Failed to parse Lambda response body as JSON. Returning as string.",
+                        extra={
+                            "snippet": response_body[:200] if response_body else "",
+                            "status_code": status_code,
+                        },
+                    )
 
             return {
                 "status_code": status_code,

@@ -19,6 +19,14 @@ class ManagerConfig(BaseAppConfig):
     )
     PING_TIMEOUT: float = Field(default=1.0, description="コンテナPing確認タイムアウト(秒)")
 
+    # Docker操作の安全性確保用設定
+    DOCKER_MAX_WORKERS: int = Field(
+        default=20, description="Docker操作用スレッドプールの最大ワーカー数"
+    )
+    DOCKER_CLIENT_TIMEOUT: int = Field(
+        default=60, description="Dockerクライアントの通信タイムアウト(秒)"
+    )
+
 
 # シングルトンとして設定をロード
 try:
