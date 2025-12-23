@@ -119,42 +119,41 @@ tests/
 
 ---
 
-## リファクタリング案
-
-### ファイル構造案
+### リファクタリング後の構造 (完了)
 
 ```
 tests/
 ├── conftest.py                  # 共通 Fixture
-├── e2e/
-│   ├── __init__.py
-│   ├── conftest.py              # E2E 共通 Fixture (gateway_health, get_auth_token 等)
-│   ├── test_gateway_basics.py   # A. Gateway 基本機能
-│   ├── test_lambda_invoke.py    # B. Lambda 呼び出し
-│   ├── test_aws_compat.py       # C. AWS サービス互換
-│   ├── test_observability.py    # D. ロギング・オブザーバビリティ
-│   └── test_resilience.py       # E. 耐障害性・パフォーマンス
+├── fixtures/                    # テスト用リソース (旧 e2e/)
+│   ├── config/                  # 自動生成設定 (git管理外)
+│   ├── functions/               # テスト用 Lambda 関数
+│   ├── generator.yml
+│   └── template.yaml
+├── test_gateway_basics.py       # A. Gateway 基本機能
+├── test_lambda_invoke.py        # B. Lambda 呼び出し
+├── test_aws_compat.py           # C. AWS サービス互換
+├── test_observability.py        # D. ロギング・オブザーバビリティ
+├── test_resilience.py           # E. 耐障害性・パフォーマンス
+└── run_tests.py
 ```
 
-### 命名規則案
-
-```
-test_<機能カテゴリ>_<具体的な検証内容>
-
-例:
-- test_auth_valid_credentials_returns_jwt
-- test_auth_invalid_credentials_returns_401
-- test_lambda_basic_invocation_returns_200
-- test_lambda_sync_invoke_between_functions
-- test_circuit_breaker_opens_after_threshold_failures
-```
+tools/cli/tests/                 # CLI ユニットテスト (移動済み)
+├── test_cert.py
+├── test_up.py
+└── ...
 
 ---
 
-## 次のアクション
+## 完了したアクション
 
-1. [ ] 上記リファクタリング案をレビュー
-2. [ ] 共通 Fixture の抽出
-3. [ ] テストファイルの分割
-4. [ ] テスト名のリネーム
-5. [ ] 未カバー機能のテスト追加検討
+1. [x] リファクタリング案の計画
+2. [x] `tests/e2e` を `tests/fixtures` にリネーム
+3. [x] CLI テストを `tests/unit` から `tools/cli/tests` に移動
+4. [x] 共通 Fixture の抽出 (`conftest.py`)
+5. [x] テストファイルの分割
+    - `test_gateway_basics.py`
+    - `test_lambda_invoke.py`
+    - `test_aws_compat.py`
+    - `test_observability.py`
+    - `test_resilience.py`
+6. [x] 全テストのパス確認

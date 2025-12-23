@@ -27,7 +27,7 @@ class TestLambdaInvoke:
         token = get_auth_token()
 
         response = requests.post(
-            f"{GATEWAY_URL}/api/s3/test",
+            f"{GATEWAY_URL}/api/s3",
             json={"action": "test", "bucket": "e2e-test-bucket"},
             headers={"Authorization": f"Bearer {token}"},
             verify=VERIFY_SSL,
@@ -47,9 +47,9 @@ class TestLambdaInvoke:
         token = get_auth_token()
 
         response = requests.post(
-            f"{GATEWAY_URL}/api/invoke/test",
+            f"{GATEWAY_URL}/api/invoke",
             json={
-                "target": "lambda-hello",
+                "target": "lambda-connectivity",
                 "type": "RequestResponse",
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -77,7 +77,7 @@ class TestLambdaInvoke:
 
         # 1. Create bucket (Sync)
         requests.post(
-            f"{GATEWAY_URL}/api/s3/test",
+            f"{GATEWAY_URL}/api/s3",
             json={"action": "create_bucket", "bucket": bucket},
             headers={"Authorization": f"Bearer {token}"},
             verify=VERIFY_SSL,
@@ -85,9 +85,9 @@ class TestLambdaInvoke:
 
         # 2. Invoke Async (invoke-test -> s3-test)
         response = requests.post(
-            f"{GATEWAY_URL}/api/invoke/test",
+            f"{GATEWAY_URL}/api/invoke",
             json={
-                "target": "lambda-s3-test",
+                "target": "lambda-integration",
                 "type": "Event",
                 "payload": {
                     "body": {"action": "put", "bucket": bucket, "key": key, "data": "Async Data"}
@@ -111,7 +111,7 @@ class TestLambdaInvoke:
         found = False
         for i in range(max_retries):
             check_resp = requests.post(
-                f"{GATEWAY_URL}/api/s3/test",
+                f"{GATEWAY_URL}/api/s3",
                 json={"action": "get", "bucket": bucket, "key": key},
                 headers={"Authorization": f"Bearer {token}"},
                 verify=VERIFY_SSL,

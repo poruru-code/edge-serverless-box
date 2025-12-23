@@ -31,8 +31,8 @@ class TestAWSCompat:
         for i in range(max_retries):
             try:
                 response = requests.post(
-                    f"{GATEWAY_URL}/api/scylla/test",
-                    json={"action": "test", "bucket": "e2e-test-bucket"},
+                    f"{GATEWAY_URL}/api/dynamo",
+                    json={"action": "dynamo-test", "bucket": "e2e-test-bucket"},
                     headers={"Authorization": f"Bearer {token}"},
                     verify=VERIFY_SSL,
                 )

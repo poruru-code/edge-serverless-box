@@ -5,15 +5,15 @@ requestContextからユーザー名を取得して応答します。
 CloudWatch Logs テスト機能も含みます。
 """
 
-import json
 import time
 import boto3
+from common.utils import handle_ping, parse_event_body, create_response
 
 
 def lambda_handler(event, context):
     # RIEハートビートチェック対応
-    if isinstance(event, dict) and event.get("ping"):
-        return {"statusCode": 200, "body": "pong"}
+    if ping_response := handle_ping(event):
+        return ping_response
 
     """
     Lambda関数のエントリーポイント
@@ -31,13 +31,7 @@ def lambda_handler(event, context):
     )
 
     # Parse body for action
-    body = event.get("body", {})
-    if isinstance(body, str):
-        try:
-            body = json.loads(body)
-        except json.JSONDecodeError:
-            body = {}
-
+    body = parse_event_body(event)
     action = body.get("action", "hello")
 
     # CloudWatch Logs テスト
@@ -79,32 +73,21 @@ def lambda_handler(event, context):
                 ],
             )
 
-            return {
-                "statusCode": 200,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps(
-                    {
-                        "success": True,
-                        "action": "test_cloudwatch",
-                        "log_stream": log_stream,
-                        "log_group": log_group,
-                    }
-                ),
-            }
+            return create_response(
+                body={
+                    "success": True,
+                    "action": "test_cloudwatch",
+                    "log_stream": log_stream,
+                    "log_group": log_group,
+                }
+            )
         except Exception as e:
-            return {
-                "statusCode": 500,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps(
-                    {"success": False, "error": str(e), "action": "test_cloudwatch"}
-                ),
-            }
+            return create_response(
+                status_code=500,
+                body={"success": False, "error": str(e), "action": "test_cloudwatch"},
+            )
 
     # デフォルト: Hello レスポンス
     response_body = {"message": f"Hello, {username}!", "event": event, "function": "hello"}
 
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(response_body),
-    }
+    return create_response(body=response_body)

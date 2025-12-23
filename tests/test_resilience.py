@@ -43,7 +43,7 @@ class TestResilience:
         # 1. 最初の呼び出し（コンテナ起動）
         print("Step 1: Initial Lambda invocation (cold start)...")
         response1 = requests.post(
-            f"{GATEWAY_URL}/api/s3/test",
+            f"{GATEWAY_URL}/api/s3",
             json={"action": "test", "bucket": "e2e-test-bucket"},
             headers={"Authorization": f"Bearer {token}"},
             verify=VERIFY_SSL,
@@ -91,7 +91,7 @@ class TestResilience:
         response2 = None
         for i in range(max_retries):
             response2 = requests.post(
-                f"{GATEWAY_URL}/api/s3/test",
+                f"{GATEWAY_URL}/api/s3",
                 json={"action": "test", "bucket": "e2e-test-bucket"},
                 headers={"Authorization": f"Bearer {token}"},
                 verify=VERIFY_SSL,

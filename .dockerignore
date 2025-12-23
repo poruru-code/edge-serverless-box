@@ -18,8 +18,10 @@ dist/
 .coverage
 
 # Tests and Docs
-**/tests/
+# **/tests/
+!tests/
 !tests/e2e/functions/
+!tests/fixtures/**
 docs/
 plans/
 *.md

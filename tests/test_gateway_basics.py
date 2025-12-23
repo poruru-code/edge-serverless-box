@@ -32,7 +32,7 @@ class TestGatewayBasics:
     def test_routing_401(self, gateway_health):
         """E2E: 認証なし → 401"""
         response = requests.post(
-            f"{GATEWAY_URL}/api/s3/test",
+            f"{GATEWAY_URL}/api/s3",
             json={"action": "test", "bucket": "e2e-test-bucket"},
             verify=VERIFY_SSL,
         )

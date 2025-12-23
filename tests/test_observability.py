@@ -42,7 +42,7 @@ class TestObservability:
 
         # カスタム RequestID を指定してリクエスト
         response = requests.post(
-            f"{GATEWAY_URL}/api/s3/test",
+            f"{GATEWAY_URL}/api/s3",
             json={"action": "test", "bucket": "e2e-test-bucket"},
             headers={
                 "Authorization": f"Bearer {token}",
@@ -129,7 +129,7 @@ class TestObservability:
         # ヘッダーに検証用IDをセットしてリクエスト（Gatewayでログ出力されることを期待）
         # 同時に、ボディにデバッグメッセージを含めて、Lambda側でも（あれば）出力させる
         response = requests.post(
-            f"{GATEWAY_URL}/api/s3/test",
+            f"{GATEWAY_URL}/api/s3",
             json={
                 "action": "test",
                 "bucket": "e2e-test-bucket",
@@ -186,16 +186,14 @@ class TestObservability:
 
         assert found_structured_log, "Structured logs (JSON) not found"
         assert found_time_field, "_time field not found or invalid"
-        assert found_debug_log, (
-            "DEBUG level log not found. Check LOG_LEVEL env var."
-        )
+        assert found_debug_log, "DEBUG level log not found. Check LOG_LEVEL env var."
 
     def test_cloudwatch_logs_via_boto3(self, gateway_health):
         """
         E2E: CloudWatch Logs API 透過的リダイレクト検証
         """
         # 1. Lambda 呼び出し (action=test_cloudwatch)
-        invoke_url = f"{GATEWAY_URL}/2015-03-31/functions/lambda-hello/invocations"
+        invoke_url = f"{GATEWAY_URL}/2015-03-31/functions/lambda-connectivity/invocations"
         payload = {"body": '{"action": "test_cloudwatch"}'}
 
         response = requests.post(invoke_url, json=payload, verify=VERIFY_SSL, timeout=30)
@@ -243,8 +241,8 @@ class TestObservability:
 
         for entry in log_entries:
             container_name = entry.get("container_name", "")
-            assert container_name == "lambda-hello", (
-                f"Expected container_name='lambda-hello', got '{container_name}'. "
+            assert container_name == "lambda-connectivity", (
+                f"Expected container_name='lambda-connectivity', got '{container_name}'. "
                 "CloudWatch Logs should be attributed to Lambda container, not Gateway."
             )
 

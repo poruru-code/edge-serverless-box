@@ -9,6 +9,13 @@ FROM public.ecr.aws/lambda/python:{{ python_version }}
 # ---------------------------------------------------
 COPY {{ sitecustomize_source }} /var/lang/lib/python{{ python_version }}/site-packages/
 
+{% for layer in layers %}
+# ---------------------------------------------------
+# Layer: {{ layer.name }}
+# ---------------------------------------------------
+COPY {{ layer.content_uri }} /opt/
+{% endfor %}
+
 {% if has_requirements %}
 # ---------------------------------------------------
 # 関数固有の依存パッケージ
@@ -20,7 +27,7 @@ RUN pip install -r ${LAMBDA_TASK_ROOT}/requirements.txt
 # ---------------------------------------------------
 # 関数コードの配置
 # ---------------------------------------------------
-COPY {{ code_uri }}*.py ${LAMBDA_TASK_ROOT}/
+COPY {{ code_uri }} ${LAMBDA_TASK_ROOT}/
 
 # ---------------------------------------------------
 # ハンドラ指定

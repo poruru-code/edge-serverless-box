@@ -85,7 +85,7 @@ def main():
         # 2. Build (任意 - reset時は強制)
         # ESB_TEMPLATE が効いているため、自動的にテスト用Lambdaがビルドされる
         if args.build or args.reset:
-            run_esb(["build"])
+            run_esb(["build", "--no-cache"])
 
         # 3. Up
         # 証明書生成は内部で行われ、--waitで起動完了までブロックする

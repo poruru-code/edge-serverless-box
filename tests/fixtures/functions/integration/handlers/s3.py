@@ -1,45 +1,18 @@
-"""
-S3テスト用Lambda関数
-標準のboto3を使用してS3互換ストレージ (RustFS) にアクセスします。
-"""
-
 import json
 import boto3
 from datetime import datetime, timezone
+from common.utils import parse_event_body, create_response
 
 
-def lambda_handler(event, context):
-    # RIEハートビートチェック対応
-    if isinstance(event, dict) and event.get("ping"):
-        return {"statusCode": 200, "body": "pong"}
-
-    """
-    S3操作を行うLambda関数
-
-    Args:
-        event: API Gatewayからのイベント
-            - action: "put" | "get" | "list" | "test" | "create_bucket"
-            - bucket: バケット名
-            - key: オブジェクトキー
-            - data: アップロードするデータ (put時)
-        context: Lambda実行コンテキスト
-    """
+def handle(event, context):
     # requestContextからユーザー名を取得
     request_context = event.get("requestContext", {})
     username = request_context.get("authorizer", {}).get("cognito:username", "anonymous")
     request_id = request_context.get("requestId", "unknown")
 
     # Body extraction setup for logging
-    raw_body = event.get("body", "{}")
-    log_action = "unknown"
-    if isinstance(raw_body, str):
-        try:
-            parsed = json.loads(raw_body)
-            log_action = parsed.get("action", "unknown") if isinstance(parsed, dict) else "unknown"
-        except (json.JSONDecodeError, AttributeError):
-            pass
-    elif isinstance(raw_body, dict):
-        log_action = raw_body.get("action", "unknown")
+    body = parse_event_body(event)
+    log_action = body.get("action", "unknown")
 
     # 構造化ログ出力 (for VictoriaLogs)
     timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
@@ -50,18 +23,10 @@ def lambda_handler(event, context):
                 "level": "INFO",
                 "request_id": request_id,
                 "message": f"Received event: action={log_action}",
-                "function": "s3-test",
+                "function": "integration-s3",
             }
         )
     )
-
-    # リクエストボディをパース
-    body = event.get("body", "{}")
-    if isinstance(body, str):
-        try:
-            body = json.loads(body)
-        except json.JSONDecodeError:
-            body = {}
 
     action = body.get("action", "test")
     bucket = body.get("bucket", "test-bucket")
@@ -84,7 +49,6 @@ def lambda_handler(event, context):
 
         elif action == "put":
             # オブジェクトをアップロード
-            # put_object wraps client.put_object
             response = s3_client.put_object(
                 Bucket=bucket,
                 Key=key,
@@ -154,17 +118,10 @@ def lambda_handler(event, context):
                 "user": username,
             }
 
-        return {
-            "statusCode": 200,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(result),
-        }
+        return create_response(body=result)
 
     except Exception as e:
-        return {
-            "statusCode": 500,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(
-                {"success": False, "error": str(e), "action": action, "user": username}
-            ),
-        }
+        return create_response(
+            status_code=500,
+            body={"success": False, "error": str(e), "action": action, "user": username},
+        )
