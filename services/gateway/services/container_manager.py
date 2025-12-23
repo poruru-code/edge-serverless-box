@@ -11,6 +11,7 @@ from ..core.exceptions import (
 )
 from services.common.models.internal import ContainerEnsureRequest, ContainerInfoResponse
 from services.common.core.request_context import get_request_id
+from .container_cache import ContainerHostCache
 
 logger = logging.getLogger("gateway.container_manager")
 
@@ -24,13 +25,25 @@ class ContainerManagerProtocol(Protocol):
 class HttpContainerManager:
     """ManagerサービスとHTTP通信を行う実装"""
 
-    def __init__(self, config: GatewayConfig, client: httpx.AsyncClient):
+    def __init__(
+        self,
+        config: GatewayConfig,
+        client: httpx.AsyncClient,
+        cache: Optional[ContainerHostCache] = None,
+    ):
         self.config = config
         self.client = client
+        self.cache = cache or ContainerHostCache()
 
     async def get_lambda_host(
         self, function_name: str, image: Optional[str], env: Dict[str, str]
     ) -> str:
+        # キャッシュチェック
+        cached_host = self.cache.get(function_name)
+        if cached_host:
+            logger.debug(f"Cache hit for {function_name}: {cached_host}")
+            return cached_host
+
         url = f"{self.config.MANAGER_URL}/containers/ensure"
 
         # モデルを作成
@@ -55,7 +68,13 @@ class HttpContainerManager:
 
             # レスポンスをモデルでバリデーション
             response_model = ContainerInfoResponse.model_validate(resp.json())
-            return response_model.host
+            host = response_model.host
+
+            # キャッシュに保存
+            self.cache.set(function_name, host)
+            logger.debug(f"Cached {function_name}: {host}")
+
+            return host
 
         except httpx.TimeoutException as e:
             logger.error(f"Manager request timed out: {e}")

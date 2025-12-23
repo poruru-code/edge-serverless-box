@@ -35,6 +35,10 @@ class HttpClientFactory:
         if verify is None:
             verify = self.config.VERIFY_SSL
 
+        # Default limits for high throughput (can be overridden by caller)
+        if "limits" not in kwargs:
+            kwargs["limits"] = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+
         return httpx.AsyncClient(verify=verify, **kwargs)
 
     def create_sync_client(self, **kwargs) -> httpx.Client:

@@ -83,3 +83,15 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: e2e-test-bucket
+
+  FaultyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-faulty
+      CodeUri: tests/e2e/functions/faulty/
+      Events:
+        FaultyApi:
+          Type: Api
+          Properties:
+            Path: /api/faulty
+            Method: post

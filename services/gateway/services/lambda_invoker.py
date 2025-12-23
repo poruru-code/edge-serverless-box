@@ -6,10 +6,13 @@ boto3.client('lambda').invoke() 互換のエンドポイント用のビジネス
 """
 
 import logging
+import json
 import httpx
+from typing import Dict
 from services.gateway.services.function_registry import FunctionRegistry
 from services.gateway.services.container_manager import ContainerManagerProtocol
 from services.gateway.config import GatewayConfig
+from services.gateway.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from services.gateway.core.exceptions import (
     FunctionNotFoundError,
     ContainerStartError,
@@ -38,6 +41,8 @@ class LambdaInvoker:
         self.registry = registry
         self.container_manager = container_manager
         self.config = config
+        # 関数名ごとのブレーカーを保持
+        self.breakers: Dict[str, CircuitBreaker] = {}
 
     async def invoke_function(
         self, function_name: str, payload: bytes, timeout: int = 300
@@ -85,15 +90,69 @@ class LambdaInvoker:
         )
         logger.info(f"Invoking {function_name} at {rie_url}")
 
-        try:
-            response = await self.client.post(
-                rie_url,
-                content=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=timeout,
+        # ブレーカー取得または作成
+        if function_name not in self.breakers:
+            self.breakers[function_name] = CircuitBreaker(
+                failure_threshold=self.config.CIRCUIT_BREAKER_THRESHOLD,
+                recovery_timeout=self.config.CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
             )
-            return response
-        except httpx.RequestError as e:
+
+        breaker = self.breakers[function_name]
+
+        try:
+            # ブレーカー経由で実行
+            async def do_post():
+                response = await self.client.post(
+                    rie_url,
+                    content=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=timeout,
+                )
+
+                # 判定: 回路を遮断すべき「失敗」かどうか
+                is_failure = False
+
+                # 1. HTTP 5xx エラー
+                if response.status_code >= 500:
+                    is_failure = True
+                # 2. AWS Lambda 実行エラーヘッダー (X-Amz-Function-Error: Unhandled 等)
+                elif response.headers.get("X-Amz-Function-Error"):
+                    is_failure = True
+                # 3. HTTP 200 だが、ボディーにエラー情報が含まれる場合 (RIE の挙動)
+                elif response.status_code == 200:
+                    try:
+                        # ボディーが短い場合にのみ JSON パースを試みる (パフォーマンス考慮)
+                        # RIE のエラー応答は通常数 KB 以下
+                        if len(response.content) < 1024 * 10:
+                            data = response.json()
+                            if isinstance(data, dict) and (
+                                "errorType" in data or "errorMessage" in data
+                            ):
+                                is_failure = True
+                    except (ValueError, json.JSONDecodeError):
+                        pass
+
+                if is_failure:
+                    # 5xx または論理エラーの場合、CircuitBreakerが「失敗」と認識できるよう例外を投げる
+                    if response.status_code >= 400:
+                        response.raise_for_status()
+                    else:
+                        # 200だが内容がエラーの場合、カスタム例外を投げる
+                        # httpx.HTTPStatusErrorを模倣してCircuitBreakerに渡す
+                        raise httpx.HTTPStatusError(
+                            f"Lambda Logical Error detected in 200 response: {response.text[:100]}",
+                            request=response.request,
+                            response=response,
+                        )
+
+                return response
+
+            return await breaker.call(do_post)
+
+        except CircuitBreakerOpenError as e:
+            logger.error(f"Circuit breaker open for {function_name}: {e}")
+            raise LambdaExecutionError(function_name, "Circuit Breaker Open") from e
+        except (httpx.RequestError, httpx.HTTPStatusError) as e:
             logger.error(
                 f"Lambda invocation failed for function '{function_name}'",
                 extra={
@@ -103,6 +162,7 @@ class LambdaInvoker:
                     "error_detail": str(e),
                 },
             )
+            # すでに response.raise_for_status() などで例外になっている場合もここに来る
             raise LambdaExecutionError(function_name, e) from e
 
 

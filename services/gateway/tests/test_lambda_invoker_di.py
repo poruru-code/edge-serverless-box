@@ -47,8 +47,13 @@ async def test_lambda_invoker_invoke_flow():
     # Mock Container Manager
     container_manager.get_lambda_host.return_value = "10.0.0.5"
 
-    # Mock HTTP Client
-    client.post.return_value = MagicMock(status_code=200, content=b"result")
+    # Mock HTTP Client - return valid JSON response (not an error)
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.content = b'{"statusCode": 200, "body": "OK"}'
+    mock_response.json.return_value = {"statusCode": 200, "body": "OK"}
+    mock_response.headers = {}
+    client.post.return_value = mock_response
 
     # Act
     await invoker.invoke_function(function_name, payload)

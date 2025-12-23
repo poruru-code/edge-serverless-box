@@ -26,3 +26,9 @@ routes:
     method: "POST"
     function: "lambda-invoke-test"
   
+
+  
+  - path: "/api/faulty"
+    method: "POST"
+    function: "lambda-faulty"
+  

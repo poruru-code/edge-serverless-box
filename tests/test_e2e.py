@@ -692,6 +692,136 @@ class TestE2E:
             f"CloudWatch Logs E2E test passed! Found {len(log_entries)} logs with correct container_name, levels (DEBUG/INFO/ERROR), and message content"
         )
 
+    # ========================================
+    # Phase 3: Container Host Caching & Circuit Breaker
+    # ========================================
+
+    def test_container_host_caching_e2e(self, gateway_health):
+        """
+        E2E: Gateway のコンテナホストキャッシュが機能していることを検証
+
+        シナリオ:
+        1. 1回目のリクエスト: キャッシュなし → Manager に問い合わせ
+        2. 2回目のリクエスト: キャッシュヒット → Manager への問い合わせなし
+        3. VictoriaLogs で Manager のログを確認し、2回目のリクエストでは
+           Manager が呼ばれていないことを検証
+        """
+        import uuid
+
+        token = get_auth_token()
+
+        # 1. 1回目リクエスト (キャッシュなし -> Manager 問い合わせ発生)
+        req_id_1 = f"e2e-cache-1-{uuid.uuid4()}"
+        resp1 = requests.post(
+            f"{GATEWAY_URL}/api/faulty",
+            json={"action": "hello"},
+            headers={"Authorization": f"Bearer {token}", "X-Request-Id": req_id_1},
+            verify=VERIFY_SSL,
+        )
+        assert resp1.status_code == 200, f"First request failed: {resp1.text}"
+
+        # 2. 2回目リクエスト (Gateway キャッシュヒット -> Manager 問い合わせなし)
+        req_id_2 = f"e2e-cache-2-{uuid.uuid4()}"
+        resp2 = requests.post(
+            f"{GATEWAY_URL}/api/faulty",
+            json={"action": "hello"},
+            headers={"Authorization": f"Bearer {token}", "X-Request-Id": req_id_2},
+            verify=VERIFY_SSL,
+        )
+        assert resp2.status_code == 200, f"Second request failed: {resp2.text}"
+
+        # 3. ログを確認 (Manager のログ出力を確認)
+        time.sleep(5)  # ログ到達待ち
+
+        result_1 = query_victorialogs(req_id_1)
+        logs_1 = result_1.get("hits", [])
+        manager_req_1 = [
+            log_entry for log_entry in logs_1 if "manager.main" in str(log_entry.get("logger", ""))
+        ]
+
+        result_2 = query_victorialogs(req_id_2)
+        logs_2 = result_2.get("hits", [])
+        manager_req_2 = [
+            log_entry for log_entry in logs_2 if "manager.main" in str(log_entry.get("logger", ""))
+        ]
+
+        print(f"Initial Manager Logs: {len(manager_req_1)}")
+        print(f"Second Manager Logs: {len(manager_req_2)}")
+
+        assert len(manager_req_1) > 0, "Initial request must involve Manager"
+        assert len(manager_req_2) == 0, "Second request should use Gateway cache and SKIP Manager"
+
+    def test_circuit_breaker_open_e2e(self, gateway_health):
+        """
+        E2E: Lambda のクラッシュ時に Circuit Breaker が作動することを検証
+
+        シナリオ:
+        1. ウォームアップ (コンテナ起動 & キャッシュ充填)
+        2. 失敗を繰り返す (action='crash' により 502 が返る)
+        3. 4回目のリクエストで Circuit Breaker が OPEN し、即座に 502 が返る
+        4. 復旧待ち後、正常リクエストが通ることを確認
+        """
+        token = get_auth_token()
+
+        # 1. ウォームアップ (コンテナ起動 & キャッシュ充填)
+        print("Warming up lambda-faulty...")
+        requests.post(
+            f"{GATEWAY_URL}/api/faulty",
+            json={"action": "hello"},
+            headers={"Authorization": f"Bearer {token}"},
+            verify=VERIFY_SSL,
+        )
+
+        try:
+            # 2. 失敗を繰り返す (設定値 CIRCUIT_BREAKER_THRESHOLD=3)
+            for i in range(3):
+                print(f"Attempt {i + 1} (crashing lambda)...")
+                start = time.time()
+                resp = requests.post(
+                    f"{GATEWAY_URL}/api/faulty",
+                    json={"action": "crash"},
+                    headers={"Authorization": f"Bearer {token}"},
+                    verify=VERIFY_SSL,
+                    timeout=10,
+                )
+                duration = time.time() - start
+                print(f"Status: {resp.status_code}, Body: {resp.text}, Latency: {duration:.2f}s")
+                assert resp.status_code == 502, f"Expected 502, got {resp.status_code}"
+
+            # 3. 4回目リクエスト (Circuit Breaker が OPEN なので即座に 502 が返るはず)
+            print("Request 4 (expecting Circuit Breaker Open)...")
+            start = time.time()
+            resp = requests.post(
+                f"{GATEWAY_URL}/api/faulty",
+                json={"action": "hello"},
+                headers={"Authorization": f"Bearer {token}"},
+                verify=VERIFY_SSL,
+                timeout=10,
+            )
+            duration = time.time() - start
+            print(f"Status: {resp.status_code}, Body: {resp.text}, Latency: {duration:.2f}s")
+
+            assert resp.status_code == 502
+            assert "Circuit Breaker Open" in resp.text
+            # 実際の通信を行わず即座にエラーを返していることを確認 (1秒以内)
+            assert duration < 1.0, f"Expected fast failure, but took {duration:.2f}s"
+
+        finally:
+            # 4. 復旧待ち (CIRCUIT_BREAKER_RECOVERY_TIMEOUT=10.0)
+            print("Waiting for recovery timeout (11s)...")
+            time.sleep(11)
+
+            # 5. 成功確認
+            resp = requests.post(
+                f"{GATEWAY_URL}/api/faulty",
+                json={"action": "hello"},
+                headers={"Authorization": f"Bearer {token}"},
+                verify=VERIFY_SSL,
+            )
+            assert resp.status_code == 200
+            assert "Faulty Lambda is OK" in resp.text
+            print("Recovery successful!")
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
