@@ -8,8 +8,10 @@ import json
 import boto3
 from datetime import datetime, timezone
 from common.utils import handle_ping, parse_event_body, create_response
+from common.core.lambda_logging import robust_lambda_logger
 
 
+@robust_lambda_logger(service_name="lambda-s3")
 def lambda_handler(event, context):
     # RIE Heartbeat
     if ping_response := handle_ping(event):

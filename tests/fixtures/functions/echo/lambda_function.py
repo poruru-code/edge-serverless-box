@@ -8,8 +8,10 @@ import json
 import os
 from datetime import datetime, timezone
 from common.utils import handle_ping, create_response, parse_event_body
+from common.core.lambda_logging import robust_lambda_logger
 
 
+@robust_lambda_logger(service_name="lambda-echo")
 def lambda_handler(event, context):
     trace_id = os.environ.get("_X_AMZN_TRACE_ID", "not-found")
     # RIE Heartbeat

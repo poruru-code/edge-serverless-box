@@ -10,6 +10,7 @@ import time
 import logging
 import boto3
 from common.utils import handle_ping, parse_event_body, create_response
+from common.core.lambda_logging import robust_lambda_logger
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -17,6 +18,7 @@ logger.setLevel(logging.INFO)
 TABLE_NAME = "e2e-test-table"
 
 
+@robust_lambda_logger(service_name="lambda-dynamo")
 def lambda_handler(event, context):
     # RIE Heartbeat
     if ping_response := handle_ping(event):
