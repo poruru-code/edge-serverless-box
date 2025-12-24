@@ -1,13 +1,25 @@
 """
 Logging Configuration
 Custom JSON Logger implementation optimized for VictoriaLogs.
+
+Provides:
+- CustomJsonFormatter: VictoriaLogs optimized JSON formatter
+- VictoriaLogsHandler: Direct HTTP logging with stdout fallback
+- configure_queue_logging: Async logging for long-lived processes
 """
 
+import atexit
+import json
 import logging
 import logging.config
-import json
+import logging.handlers
 import os
+import queue
 import string
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 
 import yaml
@@ -105,3 +117,100 @@ def setup_logging(config_path: str = "logging.yml"):
         content = template.safe_substitute(mapping)
         config = yaml.safe_load(content)
         logging.config.dictConfig(config)
+
+
+class VictoriaLogsHandler(logging.Handler):
+    """
+    VictoriaLogsへHTTPで直接ログを送信するハンドラー。
+    失敗時は標準エラー出力へフォールバックし、Dockerのjson-fileログドライバーに任せる。
+    """
+
+    def __init__(self, url: str, stream_fields: dict = None, timeout: float = 0.5):
+        super().__init__()
+        self.url = url
+        self.stream_fields = stream_fields or {}
+        self.timeout = timeout
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            # ログメッセージの生成
+            if self.formatter:
+                msg = self.formatter.format(record)
+            else:
+                msg = record.getMessage()
+
+            # JSON形式であることを期待するが、そうでなければラップする
+            try:
+                log_entry = json.loads(msg)
+            except json.JSONDecodeError:
+                log_entry = {"message": msg, "level": record.levelname}
+
+            # URLパラメータ構築
+            params = [
+                ("_stream_fields", ",".join(self.stream_fields.keys())),
+                ("_msg_field", "message"),
+                ("_time_field", "_time"),
+            ]
+            for k, v in self.stream_fields.items():
+                params.append((k, str(v)))
+
+            query_string = urllib.parse.urlencode(params)
+            full_url = f"{self.url}?{query_string}"
+
+            # データ送信
+            data = json.dumps(log_entry, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                full_url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as res:
+                    res.read()
+            except (OSError, urllib.error.URLError) as e:
+                # フォールバック: 標準エラー出力へ
+                fallback_msg = json.dumps(
+                    {
+                        "fallback": "victorialogs_failed",
+                        "error": str(e),
+                        "original_log": log_entry,
+                    },
+                    ensure_ascii=False,
+                )
+                sys.stderr.write(fallback_msg + "\n")
+
+        except Exception:
+            self.handleError(record)
+
+    def flush(self):
+        pass
+
+
+def configure_queue_logging(service_name: str, vl_url: str = None):
+    """
+    非同期QueueLoggingを構成する。
+    Gateway/Managerなどの常駐プロセスで使用。
+    """
+    if not vl_url:
+        return
+
+    # 1. 送信用の実ハンドラー (別スレッドで動作)
+    real_handler = VictoriaLogsHandler(
+        url=vl_url, stream_fields={"container_name": service_name, "job": "services"}
+    )
+    real_handler.setFormatter(CustomJsonFormatter())
+
+    # 2. キューとQueueHandler (アプリ側)
+    log_queue = queue.Queue(-1)
+    queue_handler = logging.handlers.QueueHandler(log_queue)
+
+    # 3. リスナー起動
+    listener = logging.handlers.QueueListener(log_queue, real_handler)
+    listener.start()
+    atexit.register(listener.stop)
+
+    # 4. ルートロガーに追加
+    root = logging.getLogger()
+    root.addHandler(queue_handler)
