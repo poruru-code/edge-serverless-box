@@ -22,17 +22,17 @@ class CustomJsonFormatter(logging.Formatter):
       - level: Log level
       - logger: Logger name (e.g. uvicorn.access, gateway.main)
       - message: Log message
-      - request_id: Request ID (if available in record or via ContextVar)
+      - trace_id: Trace ID for distributed tracing (X-Amzn-Trace-Id root)
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        # RequestID resolution
-        request_id = getattr(record, "request_id", None)
-        if not request_id:
+        # Trace ID resolution (trace_id > request_id for backward compat)
+        trace_id = getattr(record, "trace_id", None) or getattr(record, "request_id", None)
+        if not trace_id:
             try:
-                from .request_context import get_request_id
+                from .request_context import get_trace_id
 
-                request_id = get_request_id()
+                trace_id = get_trace_id()
             except ImportError:
                 pass
 
@@ -45,8 +45,8 @@ class CustomJsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        if request_id:
-            log_data["request_id"] = request_id
+        if trace_id:
+            log_data["trace_id"] = trace_id
 
         # Include extra fields
         standard_attrs = {

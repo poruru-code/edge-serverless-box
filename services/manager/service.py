@@ -66,7 +66,9 @@ class ContainerManager:
                     raise docker.errors.NotFound(f"Removed {name}")
 
             except docker.errors.NotFound:
+                # Cold start diagnostics
                 logger.info(f"Cold Start: Creating and starting container {name}...")
+                logger.info(f"Environment variables for {name}: {env}")
 
                 # Configure Fluentd logging driver
                 from docker.types import LogConfig

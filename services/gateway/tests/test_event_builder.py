@@ -20,7 +20,7 @@ async def test_v1_event_builder_build():
         "headers": [
             (b"content-type", b"application/json"),
             (b"user-agent", b"test-agent"),
-            (b"x-request-id", b"test-req-id"),
+            (b"x-amzn-trace-id", b"Root=1-12345678-abcdef0123456789abcdef01;Sampled=1"),
         ],
         "client": ("127.0.0.1", 12345),
     }
@@ -32,7 +32,10 @@ async def test_v1_event_builder_build():
     route_path = "/test/{id}"
 
     # Act
-    with patch("services.gateway.core.event_builder.get_request_id", return_value="test-req-id"):
+    with patch(
+        "services.gateway.core.event_builder.get_trace_id",
+        return_value="Root=1-12345678-abcdef0123456789abcdef01;Sampled=1",
+    ):
         event = await builder.build(
             request=request,
             body=body,
@@ -54,7 +57,7 @@ async def test_v1_event_builder_build():
 
     # Context checks
     context = event["requestContext"]
-    assert context["requestId"] == "test-req-id"
+    assert context["requestId"] == "1-12345678-abcdef0123456789abcdef01"
     assert context["identity"]["sourceIp"] == "127.0.0.1"
     assert context["authorizer"]["claims"]["cognito:username"] == user_id
 

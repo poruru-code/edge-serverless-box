@@ -129,21 +129,29 @@ class TestResilience:
         token = get_auth_token()
 
         # 1. 1回目リクエスト (キャッシュなし -> Manager 問い合わせ発生)
-        req_id_1 = f"e2e-cache-1-{uuid.uuid4()}"
+        epoch_hex_1 = hex(int(time.time()))[2:]
+        unique_id_1 = uuid.uuid4().hex[:24]
+        trace_id_1 = f"Root=1-{epoch_hex_1}-{unique_id_1};Sampled=1"
+        root_id_1 = f"1-{epoch_hex_1}-{unique_id_1}"
+
         resp1 = requests.post(
             f"{GATEWAY_URL}/api/faulty",
             json={"action": "hello"},
-            headers={"Authorization": f"Bearer {token}", "X-Request-Id": req_id_1},
+            headers={"Authorization": f"Bearer {token}", "X-Amzn-Trace-Id": trace_id_1},
             verify=VERIFY_SSL,
         )
         assert resp1.status_code == 200, f"First request failed: {resp1.text}"
 
         # 2. 2回目リクエスト (Gateway キャッシュヒット -> Manager 問い合わせなし)
-        req_id_2 = f"e2e-cache-2-{uuid.uuid4()}"
+        epoch_hex_2 = hex(int(time.time()) + 1)[2:]
+        unique_id_2 = uuid.uuid4().hex[:24]
+        trace_id_2 = f"Root=1-{epoch_hex_2}-{unique_id_2};Sampled=1"
+        root_id_2 = f"1-{epoch_hex_2}-{unique_id_2}"
+
         resp2 = requests.post(
             f"{GATEWAY_URL}/api/faulty",
             json={"action": "hello"},
-            headers={"Authorization": f"Bearer {token}", "X-Request-Id": req_id_2},
+            headers={"Authorization": f"Bearer {token}", "X-Amzn-Trace-Id": trace_id_2},
             verify=VERIFY_SSL,
         )
         assert resp2.status_code == 200, f"Second request failed: {resp2.text}"
@@ -151,13 +159,13 @@ class TestResilience:
         # 3. ログを確認 (Manager のログ出力を確認)
         time.sleep(5)  # ログ到達待ち
 
-        result_1 = query_victorialogs(req_id_1)
+        result_1 = query_victorialogs(root_id_1)
         logs_1 = result_1.get("hits", [])
         manager_req_1 = [
             log_entry for log_entry in logs_1 if "manager.main" in str(log_entry.get("logger", ""))
         ]
 
-        result_2 = query_victorialogs(req_id_2)
+        result_2 = query_victorialogs(root_id_2)
         logs_2 = result_2.get("hits", [])
         manager_req_2 = [
             log_entry for log_entry in logs_2 if "manager.main" in str(log_entry.get("logger", ""))

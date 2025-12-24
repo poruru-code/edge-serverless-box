@@ -37,7 +37,6 @@ from .api.deps import (
     EventBuilderDep,
 )
 from .core.logging_config import setup_logging
-from services.common.core.request_context import set_request_id, clear_request_id
 from services.common.core.http_client import HttpClientFactory
 from .core.exceptions import (
     global_exception_handler,
@@ -112,26 +111,51 @@ app = FastAPI(
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     """
-    Middleware for Request ID tracing and structured access logging.
+    Middleware for Trace ID propagation and structured access logging.
     """
     import time
+    from services.common.core.trace import TraceId
+    from services.common.core.request_context import set_trace_id, clear_trace_id
 
     start_time = time.perf_counter()
 
-    # X-Request-Id ヘッダーから取得、なければ生成
-    request_id = request.headers.get("X-Request-Id")
-    request_id = set_request_id(request_id)  # set_request_id は設定した ID を返す
+    # Trace ID の取得または生成
+    trace_id_str = request.headers.get("X-Amzn-Trace-Id")
 
-    # レスポンスヘッダーにも付与するためにレスポンスを待機
+    if trace_id_str:
+        try:
+            # Trace ID が Root= 形式の場合はパースしてセット
+            # set_trace_id 内でパースと Request ID 同期が行われる
+            set_trace_id(trace_id_str)
+        except Exception as e:
+            logger.warning(
+                f"Failed to parse incoming X-Amzn-Trace-Id: '{trace_id_str}', error: {e}"
+            )
+            # 形式が不正な場合は強制的に再生成
+            trace = TraceId.generate()
+            trace_id_str = str(trace)
+            set_trace_id(trace_id_str)
+    else:
+        # 存在しない場合は新規生成
+        trace = TraceId.generate()
+        trace_id_str = str(trace)
+        set_trace_id(trace_id_str)
+
+    # レスポンス待機
     try:
         response = await call_next(request)
-        response.headers["X-Request-Id"] = request_id
+
+        # レスポンスヘッダーへの付与
+        response.headers["X-Amzn-Trace-Id"] = trace_id_str
+        # X-Request-Id は廃止するが、互換性のために当面ログ等で必要なら内部利用のみとする
+        # 外部ヘッダーからは削除
 
         # Calculate process time
         process_time = time.perf_counter() - start_time
         process_time_ms = round(process_time * 1000, 2)
 
         # Structured Access Log
+
         # uvicorn.access is disabled (WARNING level), so this is the main access log.
         logger.info(
             f"{request.method} {request.url.path} {response.status_code}",
@@ -148,7 +172,7 @@ async def request_id_middleware(request: Request, call_next):
         return response
     finally:
         # クリーンアップ
-        clear_request_id()
+        clear_trace_id()
 
 
 # 例外ハンドラの登録

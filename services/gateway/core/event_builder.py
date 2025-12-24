@@ -4,7 +4,8 @@ from fastapi import Request
 import base64
 import time
 import logging
-from services.common.core.request_context import get_request_id
+from services.common.core.request_context import get_trace_id
+from services.common.core.trace import TraceId
 from ..models.aws_v1 import (
     APIGatewayProxyEvent,
     ApiGatewayRequestContext,
@@ -67,8 +68,15 @@ class V1ProxyEventBuilder(EventBuilder):
             multi_headers[key] = values
 
         # RequestID取得 (Contextから優先的に取得)
-        request_id = get_request_id()
-        if not request_id:
+        # RequestID取得 (Contextから優先的に取得、なければTraceIDからRootID抽出)
+        trace_id_str = get_trace_id()
+        if trace_id_str:
+            try:
+                trace = TraceId.parse(trace_id_str)
+                request_id = trace.to_root_id()
+            except Exception:
+                request_id = f"req-{int(time.time() * 1000)}"
+        else:
             request_id = f"req-{int(time.time() * 1000)}"
 
         # HTTP バージョン取得

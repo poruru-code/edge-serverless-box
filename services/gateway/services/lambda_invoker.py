@@ -7,9 +7,13 @@ boto3.client('lambda').invoke() 互換のエンドポイント用のビジネス
 
 import logging
 import json
+import base64
 import httpx
 from typing import Dict
+from services.common.core.request_context import get_trace_id
 from services.gateway.services.function_registry import FunctionRegistry
+
+
 from services.gateway.services.container_manager import ContainerManagerProtocol
 from services.gateway.config import GatewayConfig
 from services.gateway.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
@@ -18,6 +22,7 @@ from services.gateway.core.exceptions import (
     ContainerStartError,
     LambdaExecutionError,
 )
+
 
 logger = logging.getLogger("gateway.lambda_invoker")
 
@@ -74,6 +79,14 @@ class LambdaInvoker:
         gateway_internal_url = self.config.GATEWAY_INTERNAL_URL
         env["GATEWAY_INTERNAL_URL"] = gateway_internal_url
 
+        # Trace ID Propagation
+        trace_id = get_trace_id()
+        logger.debug(f"Trace ID in Invoker: {trace_id}")
+        if trace_id:
+            env["_X_AMZN_TRACE_ID"] = trace_id
+
+        logger.debug(f"Passing env to manager for {function_name}: {env}")
+
         # Ensure container (via Manager)
         try:
             host = await self.container_manager.get_lambda_host(
@@ -88,7 +101,7 @@ class LambdaInvoker:
         rie_url = (
             f"http://{host}:{self.config.LAMBDA_PORT}/2015-03-31/functions/function/invocations"
         )
-        logger.info(f"Invoking {function_name} at {rie_url}")
+        logger.info(f"Invoking {function_name} at {rie_url} (trace_id: {trace_id})")
 
         # ブレーカー取得または作成
         if function_name not in self.breakers:
@@ -102,10 +115,27 @@ class LambdaInvoker:
         try:
             # ブレーカー経由で実行
             async def do_post():
+                headers = {
+                    "Content-Type": "application/json",
+                }
+                if trace_id:
+                    # header value should be the full string (Root=...)
+                    headers["X-Amzn-Trace-Id"] = trace_id
+
+                    # RIE 対策: ClientContext に Trace ID を埋め込む
+                    # RIE は X-Amzn-Trace-Id ヘッダーを _X_AMZN_TRACE_ID 環境変数に変換しないため、
+                    # ClientContext 経由で渡し、Lambda 側の hydrate_trace_id デコレータで復元する
+                    client_context = {"custom": {"trace_id": trace_id}}
+                    json_ctx = json.dumps(client_context)
+                    b64_ctx = base64.b64encode(json_ctx.encode("utf-8")).decode("utf-8")
+                    headers["X-Amz-Client-Context"] = b64_ctx
+
+                logger.debug(f"Sending request to RIE with headers: {headers}")
+
                 response = await self.client.post(
                     rie_url,
                     content=payload,
-                    headers={"Content-Type": "application/json"},
+                    headers=headers,
                     timeout=timeout,
                 )
 

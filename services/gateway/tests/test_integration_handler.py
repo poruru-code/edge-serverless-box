@@ -38,7 +38,7 @@ def mock_ensure_container():
     pass
 
 
-def test_gateway_handler_propagates_request_id(mock_invoker):
+def test_gateway_handler_propagates_trace_id(mock_invoker):
     # Override dependencies
     app.dependency_overrides[verify_authorization] = lambda: "test-user"
     app.dependency_overrides[resolve_lambda_target] = lambda: TargetFunction(
@@ -53,8 +53,8 @@ def test_gateway_handler_propagates_request_id(mock_invoker):
     mock_manager = AsyncMock()
     app.dependency_overrides[get_manager_client] = lambda: mock_manager
 
-    trace_id = "integration-trace-id-999"
-    headers = {"X-Request-Id": trace_id}
+    trace_id = "Root=1-integration-999-abcdef0123456789abcdef01;Sampled=1"
+    headers = {"X-Amzn-Trace-Id": trace_id}
 
     # Execute with Context Manager to trigger startup/shutdown and use current mocks
     with TestClient(app) as client:
@@ -75,8 +75,9 @@ def test_gateway_handler_propagates_request_id(mock_invoker):
     # Parse payload (JSON event)
     event = json.loads(payload_bytes)
 
-    assert event["requestContext"]["requestId"] == trace_id, (
-        f"Expected {trace_id}, got {event['requestContext']['requestId']}"
+    expected_root_id = "1-integration-999-abcdef0123456789abcdef01"
+    assert event["requestContext"]["requestId"] == expected_root_id, (
+        f"Expected {expected_root_id}, got {event['requestContext']['requestId']}"
     )
 
     # Clean up

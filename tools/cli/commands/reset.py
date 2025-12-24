@@ -8,18 +8,22 @@ def run(args):
     """
     logging.warning("This command will PERMANENTLY DELETE all database tables and S3 buckets.")
 
-    try:
-        confirm = input(
-            f"{logging.Color.YELLOW}Are you sure you want to proceed? [y/N]: {logging.Color.END}"
-        )
-    except (EOFError, KeyboardInterrupt):
-        print()  # 改行
-        logging.info("Reset cancelled.")
-        return
+    # Skip confirmation if --yes is provided
+    if getattr(args, "yes", False):
+        logging.info("Skipping confirmation (--yes).")
+    else:
+        try:
+            confirm = input(
+                f"{logging.Color.YELLOW}Are you sure you want to proceed? [y/N]: {logging.Color.END}"
+            )
+        except (EOFError, KeyboardInterrupt):
+            print()  # 改行
+            logging.info("Reset cancelled.")
+            return
 
-    if confirm.lower() not in ["y", "yes"]:
-        logging.info("Reset cancelled.")
-        return
+        if confirm.lower() not in ["y", "yes"]:
+            logging.info("Reset cancelled.")
+            return
 
     logging.step("Resetting environment...")
 

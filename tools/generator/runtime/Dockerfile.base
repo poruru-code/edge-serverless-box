@@ -1,0 +1,10 @@
+# ESB Lambda Base Image
+# システム共通ランタイムを含むベースイメージ
+
+FROM public.ecr.aws/lambda/python:3.12
+
+# Python 起動時に自動ロードされる sitecustomize.py
+COPY site-packages/ /var/lang/lib/python3.12/site-packages/
+
+# Lambda Layer として PYTHONPATH に含まれる trace_bridge
+COPY python/ /opt/python/

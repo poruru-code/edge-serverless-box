@@ -183,6 +183,20 @@ esb reset
 1. `esb down --volumes` (データを含む完全削除)
 2. `esb up --build` (イメージの再ビルドとクリーンな起動)
 
+## ドキュメント
+
+詳細な技術ドキュメントは `docs/` ディレクトリにあります。
+
+| ドキュメント | 説明 |
+|------------|------|
+| [trace-propagation.md](docs/trace-propagation.md) | X-Amzn-Trace-Id トレーシング |
+| [container-management.md](docs/container-management.md) | コンテナ管理とイメージ運用 |
+| [container-cache.md](docs/container-cache.md) | コンテナホストキャッシュ |
+| [manager-restart-resilience.md](docs/manager-restart-resilience.md) | Manager再起動時の耐障害性 |
+| [network-optimization.md](docs/network-optimization.md) | ネットワーク最適化 |
+| [client-auth-spec.md](docs/client-auth-spec.md) | クライアント認証仕様 |
+| [spec.md](docs/spec.md) | システム仕様 |
+
 ## 開発ガイド
 
 ### SAM Template Generator

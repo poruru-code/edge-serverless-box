@@ -44,7 +44,10 @@ def main():
     )
 
     # --- reset command ---
-    subparsers.add_parser("reset", help="Completely reset the environment (deletes data!)")
+    reset_parser = subparsers.add_parser(
+        "reset", help="Completely reset the environment (deletes data!)"
+    )
+    reset_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
 
     args = parser.parse_args()
 

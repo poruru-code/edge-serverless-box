@@ -54,6 +54,10 @@ def run(args):
     if getattr(args, "detach", True):
         cmd.append("-d")
 
+    # サービス自体の再ビルドも行う
+    if getattr(args, "build", False):
+        cmd.append("--build")
+
     try:
         subprocess.check_call(cmd)
     except subprocess.CalledProcessError as e:

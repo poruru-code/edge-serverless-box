@@ -83,22 +83,32 @@ def get_auth_token() -> str:
     return response.json()["AuthenticationResult"]["IdToken"]
 
 
-def query_victorialogs(request_id: str, timeout: int = VICTORIALOGS_QUERY_TIMEOUT) -> dict:
+def query_victorialogs(
+    request_id: str,
+    timeout: int = VICTORIALOGS_QUERY_TIMEOUT,
+    start: str | None = None,
+) -> dict:
     """
     VictoriaLogs から RequestID を含むログをクエリ
 
     Args:
         request_id: 検索する RequestID
         timeout: タイムアウト秒数
+        start: 検索開始時刻 (ISO8601/RFC3339 形式, 例: "2025-12-24T01:00:00Z")
+               None の場合は時間制限なし
 
     Returns:
         クエリ結果の dict (hits フィールドにログが含まれる)
     """
-    query = f'request_id:"{request_id}"'
+    query = f'trace_id:"{request_id}"'
     params = {"query": query, "limit": 100}
 
-    start_time = time.time()
-    while time.time() - start_time < timeout:
+    # 時間フィルタを追加 (VictoriaLogs API の start パラメータ)
+    if start:
+        params["start"] = start
+
+    poll_start_time = time.time()
+    while time.time() - poll_start_time < timeout:
         try:
             response = requests.post(
                 f"{VICTORIALOGS_URL}/select/logsql/query",

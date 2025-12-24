@@ -36,6 +36,9 @@ def main():
     )
     parser.add_argument("--unit", action="store_true", help="Run unit tests")
     parser.add_argument("--unit-only", action="store_true", help="Run unit tests only")
+    parser.add_argument(
+        "--test-target", type=str, help="Specific pytest target (e.g. tests/test_trace.py)"
+    )
 
     args = parser.parse_args()
 
@@ -80,7 +83,7 @@ def main():
 
         # 1. Reset (任意)
         if args.reset:
-            run_esb(["reset"])
+            run_esb(["reset", "--yes"])
 
         # 2. Build (任意 - reset時は強制)
         # ESB_TEMPLATE が効いているため、自動的にテスト用Lambdaがビルドされる
@@ -91,6 +94,8 @@ def main():
         # 証明書生成は内部で行われ、--waitで起動完了までブロックする
         # DinDモードかどうかのフラグは compose file で制御しているので up コマンド自体は変わらない
         up_args = ["up", "--detach", "--wait"]
+        if args.build or args.reset:
+            up_args.append("--build")
         run_esb(up_args)
 
         # 4. Run Tests (Pytest)
@@ -106,7 +111,8 @@ def main():
         # 環境変数を再取得（load_dotenv後）
         pytest_env = os.environ.copy()
 
-        pytest_cmd = [sys.executable, "-m", "pytest", "tests/", "-v"]
+        target = args.test_target if args.test_target else "tests/"
+        pytest_cmd = [sys.executable, "-m", "pytest", target, "-v"]
         result = subprocess.run(pytest_cmd, cwd=PROJECT_ROOT, check=False, env=pytest_env)
 
         if result.returncode != 0:

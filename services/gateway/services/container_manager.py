@@ -10,7 +10,7 @@ from ..core.exceptions import (
     ManagerUnreachableError,
 )
 from services.common.models.internal import ContainerEnsureRequest, ContainerInfoResponse
-from services.common.core.request_context import get_request_id
+from services.common.core.request_context import get_trace_id
 from .container_cache import ContainerHostCache
 
 logger = logging.getLogger("gateway.container_manager")
@@ -51,11 +51,11 @@ class HttpContainerManager:
             function_name=function_name, image=image, env=env or {}
         )
 
-        # X-Request-Id ヘッダーを伝播
+        # Trace ID / Request ID ヘッダーを伝播
         headers = {}
-        request_id = get_request_id()
-        if request_id:
-            headers["X-Request-Id"] = request_id
+        trace_id = get_trace_id()
+        if trace_id:
+            headers["X-Amzn-Trace-Id"] = trace_id
 
         try:
             resp = await self.client.post(

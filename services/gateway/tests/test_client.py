@@ -103,13 +103,13 @@ async def test_ensure_container_400_docker_error(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_request_id_propagation(mock_client):
-    """RequestId が X-Request-Id ヘッダーで伝播される"""
-    from services.common.core.request_context import set_request_id, clear_request_id
+async def test_trace_id_propagation(mock_client):
+    """TraceId が X-Amzn-Trace-Id ヘッダーで伝播される"""
+    from services.common.core.request_context import set_trace_id, clear_trace_id
 
-    # RequestId を設定
-    test_request_id = "test-request-123"
-    set_request_id(test_request_id)
+    # TraceId を設定
+    test_trace_id = "Root=1-abcdef01-1234567890abcdef12345678;Sampled=1"
+    set_trace_id(test_trace_id)
 
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.status_code = 200
@@ -120,12 +120,12 @@ async def test_request_id_propagation(mock_client):
     manager_client = ManagerClient(mock_client)
     await manager_client.ensure_container("test-func")
 
-    # X-Request-Id ヘッダーが付与されているか検証
+    # X-Amzn-Trace-Id ヘッダーが付与されているか検証
     args, kwargs = mock_client.post.call_args
     assert "headers" in kwargs
-    assert kwargs["headers"]["X-Request-Id"] == test_request_id
+    assert kwargs["headers"]["X-Amzn-Trace-Id"] == test_trace_id
 
-    clear_request_id()
+    clear_trace_id()
 
 
 # ===========================================

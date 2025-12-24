@@ -2,12 +2,7 @@
 # DO NOT EDIT MANUALLY - Regenerate with: python -m tools.generator.main
 # Source: template.yaml
 
-FROM public.ecr.aws/lambda/python:{{ python_version }}
-
-# ---------------------------------------------------
-# ローカル実行用パッチの注入
-# ---------------------------------------------------
-COPY {{ sitecustomize_source }} /var/lang/lib/python{{ python_version }}/site-packages/
+FROM esb-lambda-base:latest
 
 {% for layer in layers %}
 # ---------------------------------------------------

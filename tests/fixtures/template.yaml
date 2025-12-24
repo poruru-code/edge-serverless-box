@@ -89,3 +89,9 @@ Resources:
           Properties:
             Path: /api/faulty
             Method: post
+
+  TraceChainFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-trace-chain
+      CodeUri: tests/fixtures/functions/trace-chain/

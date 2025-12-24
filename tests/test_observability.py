@@ -16,7 +16,6 @@ from tests.fixtures.conftest import (
     GATEWAY_URL,
     VICTORIALOGS_URL,
     VERIFY_SSL,
-    VICTORIALOGS_QUERY_TIMEOUT,
     LOG_WAIT_TIMEOUT,
     get_auth_token,
     query_victorialogs,
@@ -26,101 +25,17 @@ from tests.fixtures.conftest import (
 class TestObservability:
     """ロギング・オブザーバビリティ機能の検証"""
 
-    def test_request_id_tracing_in_victorialogs(self, gateway_health):
-        """
-        E2E: VictoriaLogs での RequestID トレーシング検証
-
-        カスタム RequestID を指定してリクエストし、VictoriaLogs から
-        Gateway と Manager の両方のログに同じ RequestID が記録されていることを確認
-        """
-
-        # カスタム RequestID を生成
-        custom_request_id = f"e2e-test-{uuid.uuid4()}"
-
-        # 認証
-        token = get_auth_token()
-
-        # カスタム RequestID を指定してリクエスト
-        response = requests.post(
-            f"{GATEWAY_URL}/api/s3",
-            json={"action": "test", "bucket": "e2e-test-bucket"},
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Request-Id": custom_request_id,
-            },
-            verify=VERIFY_SSL,
-        )
-
-        # リクエスト成功確認
-        assert response.status_code == 200, f"Request failed: {response.text}"
-
-        # レスポンスヘッダーに同じ RequestID が返されることを確認
-        assert response.headers.get("X-Request-Id") == custom_request_id, (
-            f"Response RequestID mismatch: {response.headers.get('X-Request-Id')}"
-        )
-
-        # VictoriaLogs からログをクエリ（ログが届くまで最大30秒待つ）
-        start_time = time.time()
-        timeout = VICTORIALOGS_QUERY_TIMEOUT
-        gateway_logs = []
-        lambda_logs = []
-        manager_logs = []
-
-        while time.time() - start_time < timeout:
-            logs = query_victorialogs(custom_request_id, timeout=1)
-            hits = logs.get("hits", [])
-
-            if not hits:
-                time.sleep(1)
-                continue
-
-            gateway_logs = []
-            manager_logs = []
-            lambda_logs = []
-
-            for log in hits:
-                c_name = log.get("container_name", "")
-
-                if not c_name and isinstance(log.get("_stream"), dict):
-                    c_name = log.get("_stream").get("container_name", "")
-
-                if not c_name and isinstance(log.get("_stream"), str):
-                    if "gateway" in log.get("_stream", ""):
-                        c_name = "gateway"
-                    elif "manager" in log.get("_stream", ""):
-                        c_name = "manager"
-                    elif "lambda" in log.get("_stream", ""):
-                        c_name = "lambda"
-
-                c_name = c_name.lower()
-
-                if "gateway" in c_name:
-                    gateway_logs.append(log)
-                elif "manager" in c_name:
-                    manager_logs.append(log)
-                elif "lambda" in c_name:
-                    lambda_logs.append(log)
-
-            # Gateway と Lambda のログがあれば終了（Manager はキャッシュヒット時は存在しない）
-            if gateway_logs and lambda_logs:
-                break
-
-            time.sleep(2)
-
-        # すべてのコンポーネントでログが記録されていることを確認
-        assert len(gateway_logs) > 0, "No Gateway logs found with the RequestID"
-        # Note: Manager logs may not exist if container was already cached (warm start)
-        if not manager_logs:
-            print("INFO: No Manager logs (cache hit - container was already warm)")
-        assert len(lambda_logs) > 0, "No Lambda logs found with the RequestID"
-
     def test_log_quality_and_level_control(self, gateway_health):
         """
         E2E: ロギングの品質と環境変数によるレベル制御の検証
         """
 
-        # 検証用のユニークな RequestID とメッセージ
-        validation_id = f"log-quality-check-{uuid.uuid4()}"
+        # 検証用のユニークな Trace ID とメッセージ
+        epoch_hex = hex(int(time.time()))[2:]
+        unique_id = uuid.uuid4().hex[:24]
+        trace_id = f"Root=1-{epoch_hex}-{unique_id};Sampled=1"
+        root_id = f"1-{epoch_hex}-{unique_id}"
+
         debug_msg = f"DEBUG_LOG_VALIDATION_{uuid.uuid4()}"
 
         # 認証
@@ -137,16 +52,14 @@ class TestObservability:
             },
             headers={
                 "Authorization": f"Bearer {token}",
-                "X-Request-Id": validation_id,
+                "X-Amzn-Trace-Id": trace_id,
             },
             verify=VERIFY_SSL,
         )
         assert response.status_code == 200
 
         # Gatewayコンテナのログを検索
-        # Gatewayはリクエスト受信時に DEBUGレベルでログを出力する設定になっているか確認
-        # または、Proxy処理中のログを確認
-        print(f"Waiting for logs with RequestID: {validation_id} ...")
+        print(f"Waiting for logs with Root ID: {root_id} ...")
 
         start_time = time.time()
         found_structured_log = False
@@ -154,7 +67,8 @@ class TestObservability:
         found_time_field = False
 
         while time.time() - start_time < LOG_WAIT_TIMEOUT:
-            logs = query_victorialogs(validation_id, timeout=1)
+            logs = query_victorialogs(root_id, timeout=1)
+
             hits = logs.get("hits", [])
             if hits:
                 for log in hits:
