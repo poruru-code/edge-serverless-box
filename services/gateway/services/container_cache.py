@@ -6,17 +6,16 @@ avoiding redundant HTTP calls on warm starts.
 """
 
 import os
-import time
 import logging
-from collections import OrderedDict
 from typing import Optional
+from cachetools import TTLCache
 
 logger = logging.getLogger("gateway.container_cache")
 
 
 class ContainerHostCache:
     """
-    TTL-based LRU cache for container host names.
+    TTL-based LRU cache for container host names using cachetools.
 
     Note: This cache is designed for single-threaded async environments (FastAPI/uvicorn).
     All operations are atomic in this context, so no locking is required.
@@ -42,11 +41,11 @@ class ContainerHostCache:
         else:
             self.ttl_seconds = float(os.getenv("CONTAINER_CACHE_TTL", "30"))
 
-        # OrderedDict for LRU ordering: {function_name: (host, timestamp)}
-        self._cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        # TTLCache: Handles both LRU eviction and TTL expiration automatically
+        self._cache = TTLCache(maxsize=self.max_size, ttl=self.ttl_seconds)
 
         logger.debug(
-            f"ContainerHostCache initialized: max_size={max_size}, ttl={self.ttl_seconds}s"
+            f"ContainerHostCache initialized (cachetools): max_size={max_size}, ttl={self.ttl_seconds}s"
         )
 
     def get(self, function_name: str) -> Optional[str]:
@@ -59,21 +58,9 @@ class ContainerHostCache:
         Returns:
             Cached host string, or None if not found or expired
         """
-        if function_name not in self._cache:
-            return None
-
-        host, timestamp = self._cache[function_name]
-
-        # Check TTL
-        if time.time() - timestamp > self.ttl_seconds:
-            # Expired - remove and return None
-            del self._cache[function_name]
-            logger.debug(f"Cache expired for {function_name}")
-            return None
-
-        # Move to end (most recently used)
-        self._cache.move_to_end(function_name)
-        return host
+        # TTLCache returns None or raises KeyError depending on usage.
+        # .get() is safe and handles expiration automatically.
+        return self._cache.get(function_name)
 
     def set(self, function_name: str, host: str) -> None:
         """
@@ -83,17 +70,7 @@ class ContainerHostCache:
             function_name: Lambda function name
             host: Container host name or IP
         """
-        # If already exists, update and move to end
-        if function_name in self._cache:
-            del self._cache[function_name]
-
-        # Add new entry
-        self._cache[function_name] = (host, time.time())
-
-        # Evict LRU if over capacity
-        while len(self._cache) > self.max_size:
-            evicted_key, _ = self._cache.popitem(last=False)
-            logger.debug(f"LRU evicted: {evicted_key}")
+        self._cache[function_name] = host
 
     def invalidate(self, function_name: str) -> None:
         """

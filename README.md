@@ -116,7 +116,7 @@ lefthook install
 1. 環境変数 `ESB_TEMPLATE` で指定されたパス
 2. カレントディレクトリ直下の `template.yaml`
 3. プロジェクトルート直下の `template.yaml`
-4. `tests/e2e/template.yaml` (デフォルトのサンプル)
+4. `tests/fixtures/template.yaml` (デフォルトのサンプル)
 
 ### サービスの起動 (`esb up`)
 
@@ -183,6 +183,20 @@ esb reset
 1. `esb down --volumes` (データを含む完全削除)
 2. `esb up --build` (イメージの再ビルドとクリーンな起動)
 
+## ドキュメント
+
+詳細な技術ドキュメントは `docs/` ディレクトリにあります。
+
+| ドキュメント | 説明 |
+|------------|------|
+| [trace-propagation.md](docs/trace-propagation.md) | X-Amzn-Trace-Id トレーシング |
+| [container-management.md](docs/container-management.md) | コンテナ管理とイメージ運用 |
+| [container-cache.md](docs/container-cache.md) | コンテナホストキャッシュ |
+| [manager-restart-resilience.md](docs/manager-restart-resilience.md) | Manager再起動時の耐障害性 |
+| [network-optimization.md](docs/network-optimization.md) | ネットワーク最適化 |
+| [client-auth-spec.md](docs/client-auth-spec.md) | クライアント認証仕様 |
+| [spec.md](docs/spec.md) | システム仕様 |
+
 ## 開発ガイド
 
 ### SAM Template Generator
@@ -192,7 +206,7 @@ esb reset
 
 #### 新しいLambda関数の追加手順
 
-1. **`tests/e2e/template.yaml` を編集**:
+1. **`tests/fixtures/template.yaml` を編集**:
 新しい `AWS::Serverless::Function` リソースを追加します。`Events` プロパティで API パスを定義してください。
 ```yaml
 MyFunction:
@@ -213,7 +227,7 @@ MyFunction:
 
 
 2. **コードの配置**:
-`tests/e2e/functions/my-func/lambda_function.py` を作成します。
+`tests/fixtures/functions/my-func/lambda_function.py` を作成します。
 3. **反映**:
 `esb watch` が起動していれば、保存した瞬間に自動的に環境に反映されます。
 手動で反映する場合は `esb build && esb up` を実行してください。
@@ -241,11 +255,20 @@ MyTable:
 
 ### テスト実行
 
+#### E2E (End-to-End) Tests
 E2Eテストは、`esb up` で構築された環境（Manager が Docker Socket を介して Lambda を動的に管理）に対して実行されます。
 
 ```bash
 # 環境を起動した状態で実行
 python tests/run_tests.py
+```
+
+#### Unit Tests
+各サービスの単体テストを実行します（環境起動は不要です）。
+
+```bash
+# ユニットテストのみ実行
+python tests/run_tests.py --unit-only
 ```
 
 ## トラブルシューティング

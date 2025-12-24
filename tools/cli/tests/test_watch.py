@@ -25,14 +25,20 @@ def test_handle_template_change(mock_provisioner, mock_generate_files, mock_subp
     mock_provisioner.assert_called_once()
 
 
+@patch("tools.cli.config.E2E_DIR", Path("tests/fixtures"))
 @patch("docker.from_env")
 def test_handle_function_change(mock_docker_env, reloader):
     """関数コード変更時のイメージビルドとコンテナ停止フローを確認"""
     mock_client = MagicMock()
     reloader.docker_client = mock_client
 
-    test_path = Path("tests/e2e/functions/hello/lambda_function.py")
-    reloader.handle_function_change(test_path)
+    # Mock Dockerfile.exists() and relative_to
+    with patch.object(Path, "exists", return_value=True):
+        with patch.object(
+            Path, "relative_to", return_value=Path("tests/fixtures/functions/hello/Dockerfile")
+        ):
+            test_path = Path("tests/fixtures/functions/hello/lambda_function.py")
+            reloader.handle_function_change(test_path)
 
     # 1. イメージビルドが呼ばれたか
     mock_client.images.build.assert_called_once()

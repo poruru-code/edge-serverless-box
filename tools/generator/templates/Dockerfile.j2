@@ -2,12 +2,14 @@
 # DO NOT EDIT MANUALLY - Regenerate with: python -m tools.generator.main
 # Source: template.yaml
 
-FROM public.ecr.aws/lambda/python:{{ python_version }}
+FROM esb-lambda-base:latest
 
+{% for layer in layers %}
 # ---------------------------------------------------
-# ローカル実行用パッチの注入
+# Layer: {{ layer.name }}
 # ---------------------------------------------------
-COPY {{ sitecustomize_source }} /var/lang/lib/python{{ python_version }}/site-packages/
+COPY {{ layer.content_uri }} /opt/
+{% endfor %}
 
 {% if has_requirements %}
 # ---------------------------------------------------
@@ -20,7 +22,7 @@ RUN pip install -r ${LAMBDA_TASK_ROOT}/requirements.txt
 # ---------------------------------------------------
 # 関数コードの配置
 # ---------------------------------------------------
-COPY {{ code_uri }}*.py ${LAMBDA_TASK_ROOT}/
+COPY {{ code_uri }} ${LAMBDA_TASK_ROOT}/
 
 # ---------------------------------------------------
 # ハンドラ指定

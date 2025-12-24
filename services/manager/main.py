@@ -5,7 +5,10 @@ import asyncio
 
 from .service import ContainerManager
 import docker.errors
-from services.common.core.request_context import set_request_id, clear_request_id, get_request_id
+from services.common.core.request_context import (
+    get_request_id,
+    set_trace_id,
+)
 from .config import config
 
 from .core.logging_config import setup_logging
@@ -43,6 +46,7 @@ async def lifespan(app: FastAPI):
 
     yield
     # Shutdown logic
+    manager.shutdown()
     scheduler.shutdown()
 
 
@@ -50,25 +54,45 @@ app = FastAPI(lifespan=lifespan)
 
 
 # ミドルウェアの登録（デコレーター方式）
+# ミドルウェアの登録（デコレーター方式）
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    """X-Request-Id ヘッダーを取得または生成し、ContextVar に設定するミドルウェア"""
-    # X-Request-Id ヘッダーから取得、なければ生成
-    request_id = request.headers.get("X-Request-Id")
-    request_id = set_request_id(request_id)
+    """Trace ID ヘッダーをキャプチャし、ContextVar に設定するミドルウェア"""
+    from services.common.core.trace import TraceId
 
-    # ログ出力（request_id は CustomJsonFormatter で自動付与される）
+    # 1. Trace ID の取得または生成
+    trace_id_str = request.headers.get("X-Amzn-Trace-Id")
+    if trace_id_str:
+        try:
+            set_trace_id(trace_id_str)
+        except Exception as e:
+            logger.warning(
+                f"Failed to parse incoming X-Amzn-Trace-Id: '{trace_id_str}', error: {e}"
+            )
+            trace = TraceId.generate()
+            trace_id_str = str(trace)
+            set_trace_id(trace_id_str)
+    else:
+        # Trace ID がない場合は新規生成 (Gateway からのリクエストには必ずあるはずだが、直接呼び出し対策)
+        trace = TraceId.generate()
+        trace_id_str = str(trace)
+        set_trace_id(trace_id_str)
+
+    # ログ出力 (trace_id は CustomJsonFormatter で自動付与される)
     logger.info(f"Request: {request.method} {request.url.path}")
 
     try:
         response = await call_next(request)
-        # レスポンスヘッダーにも付与
-        response.headers["X-Request-Id"] = request_id
+        # レスポンスヘッダーに付与
+        response.headers["X-Amzn-Trace-Id"] = trace_id_str
+
         logger.info(f"Response: {response.status_code}")
         return response
     finally:
         # クリーンアップ
-        clear_request_id()
+        from services.common.core.request_context import clear_trace_id
+
+        clear_trace_id()
 
 
 @app.post("/containers/ensure", response_model=ContainerInfoResponse)

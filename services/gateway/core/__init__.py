@@ -5,13 +5,13 @@
 """
 
 from .security import create_access_token, verify_token
-from .proxy import build_event, resolve_container_ip, proxy_to_lambda, parse_lambda_response
+from .utils import parse_lambda_response
+from .event_builder import EventBuilder, V1ProxyEventBuilder
 
 __all__ = [
     "create_access_token",
     "verify_token",
-    "build_event",
-    "resolve_container_ip",
-    "proxy_to_lambda",
     "parse_lambda_response",
+    "EventBuilder",
+    "V1ProxyEventBuilder",
 ]

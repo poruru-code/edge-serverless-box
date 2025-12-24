@@ -29,6 +29,7 @@ def main():
     up_parser.add_argument(
         "--detach", "-d", action="store_true", default=True, help="Run in background"
     )
+    up_parser.add_argument("--wait", action="store_true", help="Wait for services to be ready")
 
     # --- watch command ---
     subparsers.add_parser("watch", help="Watch for changes and hot-reload")
@@ -43,7 +44,10 @@ def main():
     )
 
     # --- reset command ---
-    subparsers.add_parser("reset", help="Completely reset the environment (deletes data!)")
+    reset_parser = subparsers.add_parser(
+        "reset", help="Completely reset the environment (deletes data!)"
+    )
+    reset_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
 
     args = parser.parse_args()
 

@@ -23,7 +23,9 @@ class TestHttpClientFactory:
         factory = HttpClientFactory(config)
         factory.create_async_client()
 
-        mock_client.assert_called_with(verify=False)
+        mock_client.assert_called_once()
+        _, kwargs = mock_client.call_args
+        assert kwargs["verify"] is False
 
     @patch("httpx.AsyncClient")
     def test_create_async_client_verify_true(self, mock_client):
@@ -35,7 +37,9 @@ class TestHttpClientFactory:
         factory = HttpClientFactory(config)
         factory.create_async_client()
 
-        mock_client.assert_called_with(verify=True)
+        mock_client.assert_called_once()
+        _, kwargs = mock_client.call_args
+        assert kwargs["verify"] is True
 
     @patch("urllib3.disable_warnings")
     def test_configure_global_settings_disable_warnings(self, mock_disable):

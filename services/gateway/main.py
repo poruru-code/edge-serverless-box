@@ -14,11 +14,14 @@ from typing import Optional
 from datetime import datetime, timezone
 import httpx
 import logging
+import json
 from .config import config
 from .core.security import create_access_token
-from .core.proxy import build_event, proxy_to_lambda, parse_lambda_response
+from .core.utils import parse_lambda_response
 from .models import AuthRequest, AuthResponse, AuthenticationResult
 from .client import ManagerClient
+from .services.container_manager import HttpContainerManager
+from .core.event_builder import V1ProxyEventBuilder
 
 # Services Imports
 from .services.function_registry import FunctionRegistry
@@ -31,10 +34,9 @@ from .api.deps import (
     LambdaInvokerDep,
     FunctionRegistryDep,
     ManagerClientDep,
-    HttpClientDep,
+    EventBuilderDep,
 )
 from .core.logging_config import setup_logging
-from services.common.core.request_context import set_request_id, clear_request_id
 from services.common.core.http_client import HttpClientFactory
 from .core.exceptions import (
     global_exception_handler,
@@ -72,7 +74,14 @@ async def lifespan(app: FastAPI):
     function_registry.load_functions_config()
     route_matcher.load_routing_config()
 
-    lambda_invoker = LambdaInvoker(client, function_registry)
+    container_manager = HttpContainerManager(config, client)
+
+    lambda_invoker = LambdaInvoker(
+        client=client,
+        registry=function_registry,
+        container_manager=container_manager,
+        config=config,
+    )
     manager_client = ManagerClient(client)
 
     # Store in app.state for DI
@@ -81,6 +90,8 @@ async def lifespan(app: FastAPI):
     app.state.route_matcher = route_matcher
     app.state.lambda_invoker = lambda_invoker
     app.state.manager_client = manager_client
+    app.state.container_manager = container_manager
+    app.state.event_builder = V1ProxyEventBuilder()
 
     logger.info("Gateway initialized with shared resources.")
 
@@ -100,26 +111,51 @@ app = FastAPI(
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     """
-    Middleware for Request ID tracing and structured access logging.
+    Middleware for Trace ID propagation and structured access logging.
     """
     import time
+    from services.common.core.trace import TraceId
+    from services.common.core.request_context import set_trace_id, clear_trace_id
 
     start_time = time.perf_counter()
 
-    # X-Request-Id ヘッダーから取得、なければ生成
-    request_id = request.headers.get("X-Request-Id")
-    request_id = set_request_id(request_id)  # set_request_id は設定した ID を返す
+    # Trace ID の取得または生成
+    trace_id_str = request.headers.get("X-Amzn-Trace-Id")
 
-    # レスポンスヘッダーにも付与するためにレスポンスを待機
+    if trace_id_str:
+        try:
+            # Trace ID が Root= 形式の場合はパースしてセット
+            # set_trace_id 内でパースと Request ID 同期が行われる
+            set_trace_id(trace_id_str)
+        except Exception as e:
+            logger.warning(
+                f"Failed to parse incoming X-Amzn-Trace-Id: '{trace_id_str}', error: {e}"
+            )
+            # 形式が不正な場合は強制的に再生成
+            trace = TraceId.generate()
+            trace_id_str = str(trace)
+            set_trace_id(trace_id_str)
+    else:
+        # 存在しない場合は新規生成
+        trace = TraceId.generate()
+        trace_id_str = str(trace)
+        set_trace_id(trace_id_str)
+
+    # レスポンス待機
     try:
         response = await call_next(request)
-        response.headers["X-Request-Id"] = request_id
+
+        # レスポンスヘッダーへの付与
+        response.headers["X-Amzn-Trace-Id"] = trace_id_str
+        # X-Request-Id は廃止するが、互換性のために当面ログ等で必要なら内部利用のみとする
+        # 外部ヘッダーからは削除
 
         # Calculate process time
         process_time = time.perf_counter() - start_time
         process_time_ms = round(process_time * 1000, 2)
 
         # Structured Access Log
+
         # uvicorn.access is disabled (WARNING level), so this is the main access log.
         logger.info(
             f"{request.method} {request.url.path} {response.status_code}",
@@ -136,13 +172,21 @@ async def request_id_middleware(request: Request, call_next):
         return response
     finally:
         # クリーンアップ
-        clear_request_id()
+        clear_trace_id()
 
 
 # 例外ハンドラの登録
 app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+
+@app.exception_handler(FunctionNotFoundError)
+async def function_not_found_handler(request: Request, exc: FunctionNotFoundError):
+    return JSONResponse(
+        status_code=404,
+        content={"message": str(exc)},
+    )
 
 
 # ===========================================
@@ -246,40 +290,28 @@ async def gateway_handler(
     user_id: UserIdDep,
     target: LambdaTargetDep,
     manager_client: ManagerClientDep,
-    http_client: HttpClientDep,
+    event_builder: EventBuilderDep,
+    invoker: LambdaInvokerDep,
 ):
     """
     キャッチオールルート：routing.ymlに基づいてLambda RIEに転送
 
     認証とルーティング解決は DI で自動的に行われる。
     """
-    # オンデマンドコンテナ起動
-    try:
-        container_host = await manager_client.ensure_container(
-            function_name=target.container_name,
-            image=target.function_config.get("image"),
-            env=target.function_config.get("environment", {}),
-        )
-    except FunctionNotFoundError:
-        logger.warning(f"Function definition not found on manager for {target.container_name}")
-        return JSONResponse(
-            status_code=404,
-            content={"message": "Function not found on manager"},
-        )
-    except Exception as e:
-        logger.error(f"Failed to ensure container {target.container_name}: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=503,
-            content={"message": "Service Unavailable", "detail": "Cold start failed"},
-        )
-
-    # Lambda RIEに転送
+    # Build Event and Invoke Lambda
     try:
         body = await request.body()
-        event = build_event(request, body, user_id, target.path_params, target.route_path)
+        event = await event_builder.build(
+            request=request,
+            body=body,
+            user_id=user_id,
+            path_params=target.path_params,
+            route_path=target.route_path,
+        )
 
-        # Inject shared client
-        lambda_response = await proxy_to_lambda(container_host, event, client=http_client)
+        # Invoke Lambda via LambdaInvoker (handles container ensure & RIE req)
+        payload = json.dumps(event).encode("utf-8")
+        lambda_response = await invoker.invoke_function(target.container_name, payload)
 
         # レスポンス変換
         result = parse_lambda_response(lambda_response)
@@ -300,16 +332,20 @@ async def gateway_handler(
             f"Lambda connection failed for {target.container_name}",
             extra={
                 "container_name": target.container_name,
-                "container_host": container_host,
                 "port": config.LAMBDA_PORT,
-                "timeout": http_client.timeout.read,
+                "timeout": config.LAMBDA_INVOKE_TIMEOUT,
                 "error_type": type(e).__name__,
                 "error_detail": str(e),
             },
             exc_info=True,
         )
+        # LambdaInvoker might have already logged, but we keep this for gateway context
         manager_client.invalidate_cache(target.container_name)
         return JSONResponse(status_code=502, content={"message": "Bad Gateway"})
+    except ContainerStartError as e:
+        return JSONResponse(status_code=503, content={"message": str(e)})
+    except LambdaExecutionError as e:
+        return JSONResponse(status_code=502, content={"message": str(e)})
 
 
 if __name__ == "__main__":

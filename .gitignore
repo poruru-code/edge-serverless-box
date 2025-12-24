@@ -67,6 +67,6 @@ certs/
 build/lambda-images/*.tar
 !build/lambda-images/.gitkeep
 
-# Generated E2E artifacts
-tests/e2e/functions/*/Dockerfile
-tests/e2e/config/functions.yml
+# Generated E2E fixtures (from template.yaml)
+tests/fixtures/functions/*/Dockerfile
+tests/fixtures/config/

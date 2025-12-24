@@ -63,7 +63,9 @@ def parse_sam_template(content: str, parameters: dict | None = None) -> dict:
     default_runtime = globals_config.get("Runtime", "python3.12")
     default_handler = globals_config.get("Handler", "lambda_function.lambda_handler")
     default_timeout = globals_config.get("Timeout", 30)
+    default_timeout = globals_config.get("Timeout", 30)
     default_memory = globals_config.get("MemorySize", 128)
+    default_layers = globals_config.get("Layers", [])
 
     functions = []
     resources = data.get("Resources", {})
@@ -126,16 +128,27 @@ def parse_sam_template(content: str, parameters: dict | None = None) -> dict:
             }
         )
 
-    # --- Phase 2: Resources 解析 ---
+    # --- Phase 2: Resources & Layers 解析 ---
     dynamodb_tables = []
     s3_buckets = []
+    layers = {}  # logical_id -> {name, content_uri}
 
+    # 先に LayerVersion を解析
     for logical_id, resource in resources.items():
         resource_type = resource.get("Type", "")
         props = resource.get("Properties", {})
 
+        if resource_type == "AWS::Serverless::LayerVersion":
+            layer_name = props.get("LayerName", logical_id)
+            layer_name = _resolve_intrinsic(layer_name, parameters)
+            content_uri = props.get("ContentUri", "./")
+            if not content_uri.endswith("/"):
+                content_uri += "/"
+
+            layers[logical_id] = {"name": layer_name, "content_uri": content_uri}
+
         # DynamoDB
-        if resource_type == "AWS::DynamoDB::Table":
+        elif resource_type == "AWS::DynamoDB::Table":
             table_name = props.get("TableName", logical_id)
             table_name = _resolve_intrinsic(table_name, parameters)
 
@@ -156,9 +169,33 @@ def parse_sam_template(content: str, parameters: dict | None = None) -> dict:
             bucket_name = _resolve_intrinsic(bucket_name, parameters)
             s3_buckets.append({"BucketName": bucket_name})
 
+    # Phase 3: Function に Layer 情報を紐付け
+    for func in functions:
+        # この時点では func は辞書
+        logical_id = func["logical_id"]
+        resource = resources.get(logical_id, {})
+        props = resource.get("Properties", {})
+
+        layer_refs = props.get("Layers", default_layers)
+        func_layers = []
+
+        for ref in layer_refs:
+            layer_id = ref
+            if isinstance(ref, dict) and "Ref" in ref:
+                layer_id = ref["Ref"]
+
+            if layer_id in layers:
+                func_layers.append(layers[layer_id])
+
+        func["layers"] = func_layers
+
     return {
         "functions": functions,
-        "resources": {"dynamodb": dynamodb_tables, "s3": s3_buckets},
+        "resources": {
+            "dynamodb": dynamodb_tables,
+            "s3": s3_buckets,
+            "layers": list(layers.values()),
+        },
     }
 
 

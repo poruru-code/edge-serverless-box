@@ -51,6 +51,12 @@ class GatewayConfig(BaseAppConfig):
     MANAGER_TIMEOUT: float = Field(default=30.0, description="Manager通信タイムアウト(秒)")
     LAMBDA_INVOKE_TIMEOUT: float = Field(default=30.0, description="Lambda呼び出しタイムアウト(秒)")
 
+    # サーキットブレーカー設定
+    CIRCUIT_BREAKER_THRESHOLD: int = Field(default=5, description="失敗しきい値")
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = Field(
+        default=30.0, description="復旧試行までの待機時間(秒)"
+    )
+
     # FastAPI設定
     root_path: str = Field(default="", description="APIのルートパス（プロキシ用）")
 

@@ -1,53 +1,45 @@
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+import json
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 from services.gateway.main import app
 from services.gateway.core.exceptions import FunctionNotFoundError
+from services.gateway.api.deps import (
+    verify_authorization,
+    resolve_lambda_target,
+    get_lambda_invoker,
+    get_manager_client,
+)
+from services.gateway.models import TargetFunction
 
 
-# Mock dependencies
 @pytest.fixture
-def mock_proxy():
-    with patch("services.gateway.main.proxy_to_lambda", new_callable=AsyncMock) as mock:
-        # Define a side effect to verify arguments immediately and return a mock response
-        def side_effect(container, event, client):
-            print(f"DEBUG: Proxy called with Event: {event}")
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.json.return_value = {"statusCode": 200, "body": "ok"}
-            return resp
+def mock_invoker():
+    from httpx import Response
 
-        mock.side_effect = side_effect
-        yield mock
+    invoker = AsyncMock()
+    # Setup default response logic
+    invoker.invoke_function.return_value = Response(
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+        content=b'{"statusCode": 200, "body": "ok"}',
+    )
+    return invoker
 
 
 @pytest.fixture
 def mock_ensure_container():
     # Mock the CLASS so when main.py instantiates it, it gets a mock
-    with patch("services.gateway.main.ManagerClient") as MockClass:
-        instance = MockClass.return_value
-        instance.ensure_container = AsyncMock(return_value="127.0.0.1")
-        yield instance.ensure_container
-
-
-@pytest.fixture
-def mock_registry():
-    # Mocking FunctionRegistry methods call inside RouteMatcher/etc if needed
-    # But for catch-all route, we might need to mock dependencies injected via app.state
-    # services/gateway/main.py initializes them in lifespan.
-    # We might need to override app dependency overrides or state.
+    # Wait, we inject ManagerClient via DI, so we should override get_manager_client in tests,
+    # OR rely on app.state.manager_client being mocked?
+    # In test_error_logging we override dependency. Here let's override too.
+    # But this fixture was using patch on main.py imports.
+    # We should switch to dependency overrides for consistency.
     pass
 
 
-# Remove global client
-# client = TestClient(app)
-
-
-def test_gateway_handler_propagates_request_id(mock_proxy, mock_ensure_container):
+def test_gateway_handler_propagates_trace_id(mock_invoker):
     # Override dependencies
-    from services.gateway.api.deps import verify_authorization, resolve_lambda_target
-    from services.gateway.models import TargetFunction
-
     app.dependency_overrides[verify_authorization] = lambda: "test-user"
     app.dependency_overrides[resolve_lambda_target] = lambda: TargetFunction(
         container_name="test-container",
@@ -55,9 +47,14 @@ def test_gateway_handler_propagates_request_id(mock_proxy, mock_ensure_container
         path_params={},
         route_path="/api/s3/test",
     )
+    app.dependency_overrides[get_lambda_invoker] = lambda: mock_invoker
 
-    trace_id = "integration-trace-id-999"
-    headers = {"X-Request-Id": trace_id}
+    # Mock manager client just in case (though unused if invoker is mocked)
+    mock_manager = AsyncMock()
+    app.dependency_overrides[get_manager_client] = lambda: mock_manager
+
+    trace_id = "Root=1-integration-999-abcdef0123456789abcdef01;Sampled=1"
+    headers = {"X-Amzn-Trace-Id": trace_id}
 
     # Execute with Context Manager to trigger startup/shutdown and use current mocks
     with TestClient(app) as client:
@@ -66,31 +63,52 @@ def test_gateway_handler_propagates_request_id(mock_proxy, mock_ensure_container
     # Verify
     assert response.status_code == 200
 
-    # Check what was passed to proxy_to_lambda
-    assert mock_proxy.called
-    args, kwargs = mock_proxy.call_args
-    # call args: container_host, event, client=...
-    event = args[1]
+    # Check what was passed to invoker.invoke_function
+    assert mock_invoker.invoke_function.called
+    args, kwargs = mock_invoker.invoke_function.call_args
+    # call args: container_name, payload (bytes)
+    function_name = args[0]
+    payload_bytes = args[1]
 
-    assert event["requestContext"]["requestId"] == trace_id, (
-        f"Expected {trace_id}, got {event['requestContext']['requestId']}"
+    assert function_name == "test-container"
+
+    # Parse payload (JSON event)
+    event = json.loads(payload_bytes)
+
+    expected_root_id = "1-integration-999-abcdef0123456789abcdef01"
+    assert event["requestContext"]["requestId"] == expected_root_id, (
+        f"Expected {expected_root_id}, got {event['requestContext']['requestId']}"
     )
 
     # Clean up
     app.dependency_overrides = {}
 
 
-def test_gateway_handler_returns_404_when_function_not_found(mock_proxy, mock_ensure_container):
+def test_gateway_handler_returns_404_when_function_not_found():
     """
-    FunctionNotFoundError が発生した場合に 404 を返すことを検証
+    FunctionNotFoundError が発生した場合に 503/404?
+    In main.py, FunctionNotFoundError is caught?
+    main.py catches FunctionNotFoundError (added in import list).
+    But where is it raised?
+    resolve_lambda_target raises HTTPException(404).
+    If invoke_function raises it?
+    LambdaInvoker doesn't raise FunctionNotFoundError usually.
+    But let's assume we simulate a case where manager client raises it or something.
+    Ah, the original test mocked ensure_container to raise FunctionNotFoundError.
+    But now ensure_container is called by Invoker.
+    Invoker catches ContainerStartError.
+    Does invoker catch FunctionNotFoundError?
+    LambdaInvoker.invoke_function doesn't seem to explicitly catch FunctionNotFoundError.
+    Core exceptions handler (global_exception_handler or http_exception_handler) should catch it.
+
+    Let's simulate FunctionNotFoundError via resolve_lambda_target OR invoker.
+    The original test tested "Function not found on manager".
+    Let's have invoker raise FunctionNotFoundError.
     """
-    # Override dependencies
-    from services.gateway.api.deps import (
-        verify_authorization,
-        resolve_lambda_target,
-        get_manager_client,
-    )
-    from services.gateway.models import TargetFunction
+
+    # Setup dependencies
+    mock_invoker = AsyncMock()
+    mock_invoker.invoke_function.side_effect = FunctionNotFoundError("missing-container")
 
     app.dependency_overrides[verify_authorization] = lambda: "test-user"
     app.dependency_overrides[resolve_lambda_target] = lambda: TargetFunction(
@@ -99,20 +117,15 @@ def test_gateway_handler_returns_404_when_function_not_found(mock_proxy, mock_en
         path_params={},
         route_path="/api/missing",
     )
+    app.dependency_overrides[get_lambda_invoker] = lambda: mock_invoker
 
-    # Mock ManagerClient to raise FunctionNotFoundError
-    mock_manager = AsyncMock()
-    mock_manager.ensure_container.side_effect = FunctionNotFoundError("missing-container")
-    app.dependency_overrides[get_manager_client] = lambda: mock_manager
-
-    # Execute
-    from fastapi.testclient import TestClient
-
-    client = TestClient(app)
-    response = client.get("/api/missing", headers={"Authorization": "Bearer token"})
+    with TestClient(app) as client:
+        response = client.get("/api/missing", headers={"Authorization": "Bearer token"})
 
     # Verify
+    # FunctionNotFoundError is mapped to 404 in exception handlers?
+    # services/gateway/core/exceptions.py says: FunctionNotFoundError -> 404.
     assert response.status_code == 404
-    assert response.json() == {"message": "Function not found on manager"}
+    assert response.json() == {"message": "Function not found: missing-container"}
 
     app.dependency_overrides = {}

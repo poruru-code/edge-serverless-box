@@ -1,0 +1,12 @@
+# E2E Test Generator Configuration
+# SAMテンプレートからE2Eテスト用のDockerfileとfunctions.ymlを生成
+
+app:
+  name: "" # prefix なし (lambda-hello のまま)
+  tag: latest
+
+paths:
+  sam_template: tests/fixtures/template.yaml
+  output_dir: tests/fixtures/functions/
+  functions_yml: tests/fixtures/config/functions.yml
+  routing_yml: tests/fixtures/config/routing.yml

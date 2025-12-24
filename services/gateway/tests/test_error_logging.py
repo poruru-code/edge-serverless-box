@@ -5,16 +5,21 @@ Lambda接続失敗時に適切なログレベル（error）で詳細情報が記
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 import httpx
 import logging
 from services.gateway.api.deps import (
     get_http_client,
     get_manager_client,
+    get_lambda_invoker,
     verify_authorization,
     resolve_lambda_target,
 )
 from services.gateway.models import TargetFunction
+from services.gateway.services.lambda_invoker import LambdaInvoker
+from services.gateway.services.function_registry import FunctionRegistry
+from services.gateway.services.container_manager import ContainerManagerProtocol
+from services.gateway.config import GatewayConfig
 
 
 @pytest.fixture
@@ -72,7 +77,8 @@ async def test_lambda_connection_error_logged_at_error_level(caplog):
     """
     from services.gateway.main import app
 
-    caplog.set_level(logging.ERROR, logger="gateway.main")
+    # Capture logs from gateway.lambda_invoker where the error is now logged
+    caplog.set_level(logging.ERROR, logger="gateway.lambda_invoker")
 
     # Override dependencies
     mock_client = AsyncMock(spec=httpx.AsyncClient)
@@ -81,9 +87,22 @@ async def test_lambda_connection_error_logged_at_error_level(caplog):
     # Manager Mock
     mock_manager = AsyncMock()
     mock_manager.ensure_container.return_value = "test-container"
+    mock_manager.invalidate_cache = MagicMock()
+
+    # Create Invoker with mock client
+    mock_registry = MagicMock(spec=FunctionRegistry)
+    mock_registry.get_function_config.return_value = {"image": "test-image", "environment": {}}
+
+    mock_container_manager = AsyncMock(spec=ContainerManagerProtocol)
+    mock_container_manager.get_lambda_host.return_value = "1.2.3.4"
+
+    config = GatewayConfig()
+
+    invoker = LambdaInvoker(mock_client, mock_registry, mock_container_manager, config)
 
     app.dependency_overrides[get_http_client] = lambda: mock_client
     app.dependency_overrides[get_manager_client] = lambda: mock_manager
+    app.dependency_overrides[get_lambda_invoker] = lambda: invoker
     app.dependency_overrides[verify_authorization] = lambda: "test-user"
     app.dependency_overrides[resolve_lambda_target] = lambda: TargetFunction(
         container_name="test-container",
@@ -94,22 +113,23 @@ async def test_lambda_connection_error_logged_at_error_level(caplog):
 
     from fastapi.testclient import TestClient
 
-    client = TestClient(app)
-
     # Trigger Lambda connection error via gateway_handler
     # proxy_to_lambda is imported in main.py, so we patch it there.
-    with patch("services.gateway.main.build_event", return_value={}):
-        with patch("services.gateway.main.proxy_to_lambda") as mock_proxy:
-            mock_proxy.side_effect = httpx.ConnectError("Connection refused")
+    # Note: proxy_to_lambda is gone. We mock invoker now (overridden dependency).
+    # But mock_client is used in invoker? Yes we set up invoker with mock_client.
+    # And we trigger error via mock_client side_effect.
 
-            client.get("/test-path", headers={"Authorization": "Bearer valid-token"})
+    with TestClient(app) as client:
+        # Trigger Lambda connection error
+        mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+        client.get("/test-path", headers={"Authorization": "Bearer valid-token"})
 
     # Clean up overrides
     app.dependency_overrides = {}
 
     # Assert: Error level log should exist
     assert any(
-        record.levelname == "ERROR" and "Lambda connection failed" in record.message
+        record.levelname == "ERROR" and "Lambda invocation failed" in record.message
         for record in caplog.records
     ), "Lambda connection error should be logged at ERROR level"
 
@@ -122,7 +142,7 @@ async def test_lambda_connection_error_includes_detailed_info(caplog):
     from services.gateway.main import app
     from services.gateway.config import config
 
-    caplog.set_level(logging.ERROR, logger="gateway.main")
+    caplog.set_level(logging.ERROR, logger="gateway.lambda_invoker")
 
     # Override dependencies
     mock_client = AsyncMock(spec=httpx.AsyncClient)
@@ -130,10 +150,21 @@ async def test_lambda_connection_error_includes_detailed_info(caplog):
 
     mock_manager = AsyncMock()
     mock_manager.ensure_container.return_value = "192.168.1.100"
-    mock_manager.invalidate_cache = MagicMock()  # 同期メソッドなので MagicMock
+    mock_manager.invalidate_cache = MagicMock()
+
+    mock_registry = MagicMock(spec=FunctionRegistry)
+    mock_registry.get_function_config.return_value = {"image": "test-image", "environment": {}}
+
+    # Custom container manager to verify host resolution in logs (if logged)
+    # Actually LambdaInvoker logs target_url which contains host.
+    mock_container_manager = AsyncMock(spec=ContainerManagerProtocol)
+    mock_container_manager.get_lambda_host.return_value = "192.168.1.100"
+
+    invoker = LambdaInvoker(mock_client, mock_registry, mock_container_manager, config)
 
     app.dependency_overrides[get_http_client] = lambda: mock_client
     app.dependency_overrides[get_manager_client] = lambda: mock_manager
+    app.dependency_overrides[get_lambda_invoker] = lambda: invoker
     app.dependency_overrides[verify_authorization] = lambda: "test-user"
     app.dependency_overrides[resolve_lambda_target] = lambda: TargetFunction(
         container_name="test-container",
@@ -144,14 +175,11 @@ async def test_lambda_connection_error_includes_detailed_info(caplog):
 
     from fastapi.testclient import TestClient
 
-    client = TestClient(app)
+    with TestClient(app) as client:
+        # Trigger Lambda connection error
+        mock_client.post.side_effect = httpx.ConnectTimeout("Timeout after 30s")
 
-    # Trigger Lambda connection error
-    with patch("services.gateway.main.build_event", return_value={}):
-        with patch("services.gateway.main.proxy_to_lambda") as mock_proxy:
-            mock_proxy.side_effect = httpx.ConnectTimeout("Timeout after 30s")
-
-            client.get("/test-path", headers={"Authorization": "Bearer valid-token"})
+        client.get("/test-path", headers={"Authorization": "Bearer valid-token"})
 
     # Clean up overrides
     app.dependency_overrides = {}
@@ -167,18 +195,13 @@ async def test_lambda_connection_error_includes_detailed_info(caplog):
     # Check for detailed fields in log record
     error_record = error_records[0]
 
-    # ログ出力内容の検証
-    # extraフィールドは直接属性としてアクセスできない場合がある（LogRecordの仕様）が、
-    # Pythonのloggingモジュールでは extra で渡した辞書は LogRecord の属性になる。
-    assert hasattr(error_record, "container_host"), "Log should include container_host"
-    assert hasattr(error_record, "port"), "Log should include port"
-    assert hasattr(error_record, "timeout"), "Log should include timeout"
+    # LambdaInvoker logs: function_name, target_url, error_type, error_detail
+    assert hasattr(error_record, "function_name"), "Log should include function_name"
+    assert hasattr(error_record, "target_url"), "Log should include target_url"
     assert hasattr(error_record, "error_detail"), "Log should include error_detail"
 
-    assert error_record.container_host == "192.168.1.100"
-    assert error_record.port == config.LAMBDA_PORT
-    assert error_record.timeout == 30.0
+    assert (
+        error_record.function_name == "test-container"
+    )  # container_name is passed as function_name
+    assert "192.168.1.100" in error_record.target_url
     assert "Timeout" in error_record.error_detail
-
-    # Invalidate cache が呼ばれたことも確認
-    mock_manager.invalidate_cache.assert_called_with("test-container")

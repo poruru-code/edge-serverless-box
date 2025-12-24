@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: E2E Test Lambda Functions
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Handler: lambda_function.lambda_handler
+    Timeout: 30
+    MemorySize: 128
+    Layers:
+      - !Ref CommonLayer
+
+Resources:
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: common-lib
+      ContentUri: tests/fixtures/layers/common/
+      CompatibleRuntimes:
+        - python3.12
+
+  ConnectivityFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-connectivity
+      CodeUri: tests/fixtures/functions/connectivity/
+      Events:
+        HelloApi:
+          Type: Api
+          Properties:
+            Path: /api/hello
+            Method: post
+
+  IntegrationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-integration
+      CodeUri: tests/fixtures/functions/integration/
+      Events:
+        S3Api:
+          Type: Api
+          Properties:
+            Path: /api/s3
+            Method: post
+        DynamoApi:
+          Type: Api
+          Properties:
+            Path: /api/dynamo
+            Method: post
+        InvokeApi:
+          Type: Api
+          Properties:
+            Path: /api/invoke
+            Method: post
+      Environment:
+        Variables:
+          S3_ENDPOINT: "http://onpre-storage:9000"
+          RUSTFS_ROOT_USER: "rustfsadmin"
+          RUSTFS_ROOT_PASSWORD: "rustfsadmin"
+          DYNAMODB_ENDPOINT: "http://onpre-database:8000"
+
+  # --- Phase 2: Storage & Database リソース定義 ---
+  E2ETable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: e2e-test-table
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  E2EBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: e2e-test-bucket
+
+  ChaosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-chaos
+      CodeUri: tests/fixtures/functions/chaos/
+      Events:
+        FaultyApi:
+          Type: Api
+          Properties:
+            Path: /api/faulty
+            Method: post
+
+  TraceChainFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-trace-chain
+      CodeUri: tests/fixtures/functions/trace-chain/

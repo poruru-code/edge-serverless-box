@@ -46,6 +46,7 @@ def render_dockerfile(
         "code_uri": func_config.get("code_uri", "./"),
         "handler": func_config.get("handler", "lambda_function.lambda_handler"),
         "has_requirements": func_config.get("has_requirements", False),
+        "layers": func_config.get("layers", []),
     }
 
     return template.render(context)

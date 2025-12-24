@@ -3,8 +3,40 @@ from tools.generator import main as generator
 from tools.cli.config import PROJECT_ROOT, E2E_DIR, TEMPLATE_YAML
 from tools.cli.core import logging
 
+# ESB Lambda ベースイメージ用のディレクトリ
+RUNTIME_DIR = PROJECT_ROOT / "tools" / "generator" / "runtime"
+BASE_IMAGE_TAG = "esb-lambda-base:latest"
 
-def build_function_images(no_cache=False):
+
+def build_base_image(no_cache=False):
+    """ESB Lambda ベースイメージをビルドする"""
+    client = docker.from_env()
+    dockerfile_path = RUNTIME_DIR / "Dockerfile.base"
+
+    if not dockerfile_path.exists():
+        logging.warning(f"Base Dockerfile not found: {dockerfile_path}")
+        return False
+
+    logging.step("Building base image...")
+    print(f"  • Building {logging.highlight(BASE_IMAGE_TAG)} ...", end="", flush=True)
+
+    try:
+        client.images.build(
+            path=str(RUNTIME_DIR),
+            dockerfile="Dockerfile.base",
+            tag=BASE_IMAGE_TAG,
+            nocache=no_cache,
+            rm=True,
+        )
+        print(f" {logging.Color.GREEN}✅{logging.Color.END}")
+        return True
+    except Exception as e:
+        print(f" {logging.Color.RED}❌{logging.Color.END}")
+        logging.error(f"Base image build failed: {e}")
+        return False
+
+
+def build_function_images(no_cache=False, verbose=False):
     """
     生成されたDockerfileを見つけてイメージをビルドする
     """
@@ -39,8 +71,16 @@ def build_function_images(no_cache=False):
             print(f" {logging.Color.GREEN}✅{logging.Color.END}")
         except Exception as e:
             print(f" {logging.Color.RED}❌{logging.Color.END}")
-            logging.error(f"Build failed for {image_tag}: {e}")
-            raise
+            if verbose:
+                logging.error(f"Build failed for {image_tag}: {e}")
+                raise
+            else:
+                logging.error(f"Build failed for {image_tag}. Use --verbose for details.")
+                # Non-verbose: exit or raise without trace?
+                # CLI usually should stop on error.
+                import sys
+
+                sys.exit(1)
 
 
 def run(args):
@@ -51,7 +91,7 @@ def run(args):
     # Generator の設定をロード
     config_path = E2E_DIR / "generator.yml"
     if not config_path.exists():
-        config_path = PROJECT_ROOT / "tests/e2e/generator.yml"
+        config_path = PROJECT_ROOT / "tests/fixtures/generator.yml"
 
     config = generator.load_config(config_path)
 
@@ -63,8 +103,16 @@ def run(args):
     generator.generate_files(config=config, project_root=PROJECT_ROOT, dry_run=False, verbose=False)
     logging.success("Configurations generated.")
 
-    # 2. イメージビルド
+    # 2. ベースイメージビルド
     no_cache = getattr(args, "no_cache", False)
-    build_function_images(no_cache=no_cache)
+    verbose = getattr(args, "verbose", False)
+
+    if not build_base_image(no_cache=no_cache):
+        import sys
+
+        sys.exit(1)
+
+    # 3. Lambda関数イメージビルド
+    build_function_images(no_cache=no_cache, verbose=verbose)
 
     logging.success("Build complete.")
