@@ -146,10 +146,11 @@ services:
       - LAMBDA_INVOKE_TIMEOUT=${LAMBDA_INVOKE_TIMEOUT:-30.0}
       - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-5}
       - CIRCUIT_BREAKER_RECOVERY_TIMEOUT=${CIRCUIT_BREAKER_RECOVERY_TIMEOUT:-30.0}
+      - PYTHONUNBUFFERED=1
     logging:
       driver: fluentd
       options:
-        fluentd-address: "localhost:24224"
+        fluentd-address: "host.docker.internal:24224"
         tag: "gateway"
         fluentd-async: "true"
     depends_on:
@@ -182,10 +183,11 @@ services:
       - CONTAINERS_NETWORK=${LAMBDA_NETWORK?LAMBDA_NETWORK is required}
       - IDLE_TIMEOUT_MINUTES=${IDLE_TIMEOUT_MINUTES:-5}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONUNBUFFERED=1
     logging:
       driver: fluentd
       options:
-        fluentd-address: "localhost:24224"
+        fluentd-address: "host.docker.internal:24224"
         tag: "manager"
         fluentd-async: "true"
     restart: unless-stopped

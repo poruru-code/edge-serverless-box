@@ -68,6 +68,11 @@ class ContainerManager:
             except docker.errors.NotFound:
                 # Cold start diagnostics
                 logger.info(f"Cold Start: Creating and starting container {name}...")
+
+                # Prevent log buffering
+                env = env or {}
+                env["PYTHONUNBUFFERED"] = "1"
+
                 logger.info(f"Environment variables for {name}: {env}")
 
                 # Configure Fluentd logging driver
@@ -76,9 +81,9 @@ class ContainerManager:
                 log_config = LogConfig(
                     type=LogConfig.types.FLUENTD,
                     config={
-                        "fluentd-address": "localhost:24224",
+                        "fluentd-address": "host.docker.internal:24224",
                         "tag": f"lambda.{name}",
-                        "fluentd-async": "true",
+                        "fluentd-async": "false",
                     },
                 )
 

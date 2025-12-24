@@ -7,11 +7,13 @@ CloudWatch Logs テスト機能も含みます。
 
 import time
 import boto3
+import logging
 from common.utils import handle_ping, parse_event_body, create_response
-from trace_bridge import hydrate_trace_id
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 
-@hydrate_trace_id
 def lambda_handler(event, context):
     # RIEハートビートチェック対応
     if ping_response := handle_ping(event):
@@ -27,10 +29,10 @@ def lambda_handler(event, context):
     Returns:
         API Gateway互換のレスポンス
     """
-    # requestContextからユーザー名を取得
     username = (
         event.get("requestContext", {}).get("authorizer", {}).get("cognito:username", "anonymous")
     )
+    logger.info(f"Processing action for user: {username}")
 
     # Parse body for action
     body = parse_event_body(event)
@@ -90,6 +92,10 @@ def lambda_handler(event, context):
             )
 
     # デフォルト: Hello レスポンス
-    response_body = {"message": f"Hello, {username}!", "event": event, "function": "hello"}
+    response_body = {
+        "message": f"Hello, {username}!",
+        "event": event,
+        "function": "hello",
+    }
 
     return create_response(body=response_body)

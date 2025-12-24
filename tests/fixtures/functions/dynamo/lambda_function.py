@@ -10,7 +10,6 @@ import time
 import logging
 import boto3
 from common.utils import handle_ping, parse_event_body, create_response
-from trace_bridge import hydrate_trace_id
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -18,7 +17,6 @@ logger.setLevel(logging.INFO)
 TABLE_NAME = "e2e-test-table"
 
 
-@hydrate_trace_id
 def lambda_handler(event, context):
     # RIE Heartbeat
     if ping_response := handle_ping(event):

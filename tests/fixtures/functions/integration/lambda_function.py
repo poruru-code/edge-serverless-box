@@ -2,14 +2,12 @@ import os
 import json
 import boto3
 import logging
-from trace_bridge import hydrate_trace_id
 from common.utils import handle_ping, parse_event_body, create_response
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-@hydrate_trace_id
 def lambda_handler(event, context):
     # RIE Heartbeat
     if ping_response := handle_ping(event):

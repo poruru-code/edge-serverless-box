@@ -79,6 +79,10 @@ class LambdaInvoker:
         gateway_internal_url = self.config.GATEWAY_INTERNAL_URL
         env["GATEWAY_INTERNAL_URL"] = gateway_internal_url
 
+        # Inject _HANDLER env var for sitecustomize.py wrapper
+        # This enables auto trace ID hydration via sitecustomize.py
+        env.setdefault("_HANDLER", "lambda_function.lambda_handler")
+
         # Trace ID Propagation
         trace_id = get_trace_id()
         logger.debug(f"Trace ID in Invoker: {trace_id}")

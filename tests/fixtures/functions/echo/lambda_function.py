@@ -8,10 +8,8 @@ import json
 import os
 from datetime import datetime, timezone
 from common.utils import handle_ping, create_response, parse_event_body
-from trace_bridge import hydrate_trace_id
 
 
-@hydrate_trace_id
 def lambda_handler(event, context):
     trace_id = os.environ.get("_X_AMZN_TRACE_ID", "not-found")
     # RIE Heartbeat

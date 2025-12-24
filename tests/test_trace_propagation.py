@@ -66,35 +66,52 @@ class TestTrace:
         print("[OK] Lambda B (child) response received")
 
         # --- 検証 2: VictoriaLogs で各コンポーネントでの Trace ID 出現を確認 ---
-        time.sleep(5)  # ログ到達待ち
+        # ログ到達待ち (最大 45秒)
+        # Note: query_victorialogs は min_hits=1 で戻るため、Gateway ログが見つかった時点で
+        # Lambda ログがまだでも返ってきてしまう。そのため、ループで全コンポーネントが揃うのを待つ。
 
-        # テスト開始時刻を ISO8601 形式に変換して VictoriaLogs クエリに渡す
-        start_time_iso = test_start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-        logs = query_victorialogs(root_id, timeout=15, start=start_time_iso)
-        hits = logs.get("hits", [])
-
-        # 通過すべきコンポーネントの定義
-        expected_components = {"onpre-gateway", "lambda-trace-chain", "lambda-connectivity"}
+        expected_components = {"onpre-gateway", "lambda-integration", "lambda-connectivity"}
         found_components = set()
 
-        for log in hits:
-            # container_name フィールドまたは _stream から取得
-            container_name = log.get("container_name", "")
-            stream = log.get("_stream", "")
+        wait_start = time.time()
+        wait_timeout = 45
 
-            for component in expected_components:
-                if component in container_name or component in stream:
-                    found_components.add(component)
+        print(f"Waiting for logs from: {expected_components} (Timeout: {wait_timeout}s)")
+
+        while time.time() - wait_start < wait_timeout:
+            # テスト開始時刻を ISO8601 形式に変換して VictoriaLogs クエリに渡す
+            start_time_iso = test_start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            logs = query_victorialogs(root_id, timeout=1, start=start_time_iso)
+            hits = logs.get("hits", [])
+
+            current_found = set()
+            for log in hits:
+                container_name = log.get("container_name", "")
+                stream = log.get("_stream", "")
+
+                for component in expected_components:
+                    if component in container_name or f'container_name="{component}"' in stream:
+                        current_found.add(component)
+
+            found_components = current_found
+            missing = expected_components - found_components
+
+            if not missing:
+                break
+
+            time.sleep(2)
 
         print(f"Found {len(hits)} logs for Trace ID root: {root_id}")
         print(f"Components with Trace ID: {found_components}")
 
         missing_components = expected_components - found_components
         if missing_components:
-            # Lambda コンテナのログは trace_id フィールドで検索できない場合があるため警告のみ
-            print(
-                f"[WARN] Trace ID did not appear in VictoriaLogs for: {missing_components}. "
-                f"This may be due to Lambda log format not including trace_id field."
+            # 厳格な検証: 全コンポーネントで Trace ID が見つからなければエラー
+            print(f"DEBUG Logs found: {json.dumps(logs, indent=2)}", flush=True)
+            raise AssertionError(
+                f"[FAILED] Trace ID did not appear in VictoriaLogs for: {missing_components}. "
+                f"Found in: {found_components}. "
+                f"Ensure sitecustomize.py is auto-hydrating trace IDs and logs are shipped."
             )
         else:
             print(f"[OK] Trace ID propagated to all expected components: {found_components}")
