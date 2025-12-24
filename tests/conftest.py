@@ -10,6 +10,7 @@ from tests.fixtures.conftest import (
     gateway_health,  # noqa: F401
     get_auth_token,  # noqa: F401
     query_victorialogs,  # noqa: F401
+    query_victorialogs_by_filter,  # noqa: F401
     request_with_retry,  # noqa: F401
     GATEWAY_URL,  # noqa: F401
     VICTORIALOGS_URL,  # noqa: F401
