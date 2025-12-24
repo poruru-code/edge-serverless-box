@@ -73,19 +73,14 @@ class ContainerManager:
                 env = env or {}
                 env["PYTHONUNBUFFERED"] = "1"
 
+                # VictoriaLogs URL を Lambda に注入（直接ログ送信用）
+                import os
+
+                vl_host = os.environ.get("VICTORIALOGS_HOST", "victorialogs")
+                vl_port = os.environ.get("VICTORIALOGS_PORT", "9428")
+                env["VICTORIALOGS_URL"] = f"http://{vl_host}:{vl_port}/insert/jsonline"
+
                 logger.info(f"Environment variables for {name}: {env}")
-
-                # Configure Fluentd logging driver
-                from docker.types import LogConfig
-
-                log_config = LogConfig(
-                    type=LogConfig.types.FLUENTD,
-                    config={
-                        "fluentd-address": "host.docker.internal:24224",
-                        "tag": f"lambda.{name}",
-                        "fluentd-async": "false",
-                    },
-                )
 
                 try:
                     container = await self.docker.run_container(
@@ -96,7 +91,6 @@ class ContainerManager:
                         network=self.network,
                         restart_policy={"Name": "no"},
                         labels={"created_by": "sample-dind"},
-                        log_config=log_config,
                     )
                 except docker.errors.APIError as e:
                     # 409 Conflict: コンテナが既に存在する（競合による作成）

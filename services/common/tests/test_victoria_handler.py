@@ -60,19 +60,26 @@ class TestVictoriaLogsHandler:
             assert data["message"] == "Test message"
             assert data["level"] == "INFO"
 
-    def test_emit_fallback_to_stderr_on_failure(self, handler, log_record, capsys):
-        """異常系: ネットワークエラー時に標準エラー出力へフォールバックすること"""
-        with patch("urllib.request.urlopen") as mock_urlopen:
+    def test_emit_fallback_to_stderr_on_failure(self, handler, log_record):
+        """異常系: ネットワークエラー時に __stderr__ へフォールバックすること"""
+        from io import StringIO
+
+        mock_stderr = StringIO()
+
+        with (
+            patch("urllib.request.urlopen") as mock_urlopen,
+            patch("sys.__stderr__", mock_stderr),
+        ):
             # ネットワークエラーを発生させる
             mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
 
             handler.emit(log_record)
 
-            # 標準エラー出力をキャプチャして検証
-            captured = capsys.readouterr()
-            assert captured.err != ""
+            # __stderr__ への出力を検証
+            output = mock_stderr.getvalue()
+            assert output != ""
 
-            fallback_log = json.loads(captured.err)
+            fallback_log = json.loads(output)
             assert fallback_log["fallback"] == "victorialogs_failed"
             assert "Connection refused" in fallback_log["error"]
             assert fallback_log["original_log"]["message"] == "Test message"

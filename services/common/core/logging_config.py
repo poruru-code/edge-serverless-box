@@ -171,6 +171,7 @@ class VictoriaLogsHandler(logging.Handler):
                     res.read()
             except (OSError, urllib.error.URLError) as e:
                 # フォールバック: 標準エラー出力へ
+                # sys.__stderr__ を使用して StreamToLogger による無限ループを回避
                 fallback_msg = json.dumps(
                     {
                         "fallback": "victorialogs_failed",
@@ -179,7 +180,11 @@ class VictoriaLogsHandler(logging.Handler):
                     },
                     ensure_ascii=False,
                 )
-                sys.stderr.write(fallback_msg + "\n")
+                stream = getattr(sys, "__stderr__", sys.stderr)
+                try:
+                    stream.write(fallback_msg + "\n")
+                except Exception:
+                    pass  # 最悪のケースでもアプリ停止を防ぐ
 
         except Exception:
             self.handleError(record)

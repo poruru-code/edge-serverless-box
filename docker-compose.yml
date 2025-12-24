@@ -72,22 +72,7 @@ services:
       - external_network # 外部公開用
       - internal_network # Lambda間通信
 
-  # ============================================
-  # Fluent Bit (Log Aggregator)
-  # ============================================
-  fluent-bit:
-    image: fluent/fluent-bit:latest
-    container_name: fluent-bit
-    ports:
-      - "${FLUENT_BIT_PORT:-24224}:24224"  # Forward protocol
-    volumes:
-      - ./config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-      - ./config/parsers.conf:/fluent-bit/etc/parsers.conf:ro
-      - ./config/append_container_name.lua:/fluent-bit/etc/append_container_name.lua:ro
-    networks:
-      - external_network
-      - internal_network
-    restart: unless-stopped
+  # Fluent Bit は廃止されました。ログは各サービスから VictoriaLogs へ直接送信されます。
 
   # ============================================
   # VictoriaLogs
@@ -147,15 +132,10 @@ services:
       - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-5}
       - CIRCUIT_BREAKER_RECOVERY_TIMEOUT=${CIRCUIT_BREAKER_RECOVERY_TIMEOUT:-30.0}
       - PYTHONUNBUFFERED=1
-    logging:
-      driver: fluentd
-      options:
-        fluentd-address: "host.docker.internal:24224"
-        tag: "gateway"
-        fluentd-async: "true"
+      # VictoriaLogs 直接送信設定
+      - VICTORIALOGS_HOST=victorialogs
+      - VICTORIALOGS_PORT=9428
     depends_on:
-      fluent-bit:
-        condition: service_started
       manager:
         condition: service_started
       database:
@@ -184,12 +164,9 @@ services:
       - IDLE_TIMEOUT_MINUTES=${IDLE_TIMEOUT_MINUTES:-5}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PYTHONUNBUFFERED=1
-    logging:
-      driver: fluentd
-      options:
-        fluentd-address: "host.docker.internal:24224"
-        tag: "manager"
-        fluentd-async: "true"
+      # VictoriaLogs 直接送信設定
+      - VICTORIALOGS_HOST=victorialogs
+      - VICTORIALOGS_PORT=9428
     restart: unless-stopped
 
 volumes:
