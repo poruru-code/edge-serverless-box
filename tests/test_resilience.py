@@ -19,15 +19,15 @@ from tests.fixtures.conftest import (
     DEFAULT_REQUEST_TIMEOUT,
     MANAGER_RESTART_WAIT,
     STABILIZATION_WAIT,
-    get_auth_token,
     query_victorialogs,
+    request_with_retry,
 )
 
 
 class TestResilience:
     """耐障害性・パフォーマンス機能の検証"""
 
-    def test_manager_restart_container_adoption(self, gateway_health):
+    def test_manager_restart_container_adoption(self, auth_token):
         """
         E2E: Manager再起動時のコンテナ復元検証 (Adopt & Sync)
 
@@ -38,14 +38,12 @@ class TestResilience:
         4. コールドスタートではなくウォームスタートで起動することを確認（コンテナが復元されている）
         """
 
-        token = get_auth_token()
-
         # 1. 最初の呼び出し（コンテナ起動）
         print("Step 1: Initial Lambda invocation (cold start)...")
         response1 = requests.post(
             f"{GATEWAY_URL}/api/s3",
             json={"action": "test", "bucket": "e2e-test-bucket"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {auth_token}"},
             verify=VERIFY_SSL,
         )
         assert response1.status_code == 200
@@ -87,21 +85,16 @@ class TestResilience:
         print("Step 3: Post-restart invocation (should be warm start)...")
 
         # Manager再起動直後は502が返る可能性があるのでリトライ
-        max_retries = 5
-        response2 = None
-        for i in range(max_retries):
-            response2 = requests.post(
-                f"{GATEWAY_URL}/api/s3",
-                json={"action": "test", "bucket": "e2e-test-bucket"},
-                headers={"Authorization": f"Bearer {token}"},
-                verify=VERIFY_SSL,
-            )
-            if response2.status_code == 200:
-                break
-            print(f"Retry {i + 1}/{max_retries}: Status {response2.status_code}")
-            time.sleep(2)
+        response2 = request_with_retry(
+            "post",
+            f"{GATEWAY_URL}/api/s3",
+            max_retries=5,
+            retry_interval=2.0,
+            json={"action": "test", "bucket": "e2e-test-bucket"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+            verify=VERIFY_SSL,
+        )
 
-        assert response2 is not None, "No response received after retries"
         assert response2.status_code == 200, (
             f"Expected 200, got {response2.status_code}: {response2.text}"
         )
@@ -115,7 +108,7 @@ class TestResilience:
         time.sleep(3)  # ログが届くまで待つ
         print("Test passed: Container was successfully adopted after Manager restart")
 
-    def test_container_host_caching_e2e(self, gateway_health):
+    def test_container_host_caching_e2e(self, auth_token):
         """
         E2E: Gateway のコンテナホストキャッシュが機能していることを検証
 
@@ -126,8 +119,6 @@ class TestResilience:
            Manager が呼ばれていないことを検証
         """
 
-        token = get_auth_token()
-
         # 1. 1回目リクエスト (キャッシュなし -> Manager 問い合わせ発生)
         epoch_hex_1 = hex(int(time.time()))[2:]
         unique_id_1 = uuid.uuid4().hex[:24]
@@ -137,7 +128,7 @@ class TestResilience:
         resp1 = requests.post(
             f"{GATEWAY_URL}/api/faulty",
             json={"action": "hello"},
-            headers={"Authorization": f"Bearer {token}", "X-Amzn-Trace-Id": trace_id_1},
+            headers={"Authorization": f"Bearer {auth_token}", "X-Amzn-Trace-Id": trace_id_1},
             verify=VERIFY_SSL,
         )
         assert resp1.status_code == 200, f"First request failed: {resp1.text}"
@@ -151,7 +142,7 @@ class TestResilience:
         resp2 = requests.post(
             f"{GATEWAY_URL}/api/faulty",
             json={"action": "hello"},
-            headers={"Authorization": f"Bearer {token}", "X-Amzn-Trace-Id": trace_id_2},
+            headers={"Authorization": f"Bearer {auth_token}", "X-Amzn-Trace-Id": trace_id_2},
             verify=VERIFY_SSL,
         )
         assert resp2.status_code == 200, f"Second request failed: {resp2.text}"
@@ -177,7 +168,7 @@ class TestResilience:
         assert len(manager_req_1) > 0, "Initial request must involve Manager"
         assert len(manager_req_2) == 0, "Second request should use Gateway cache and SKIP Manager"
 
-    def test_circuit_breaker_open_e2e(self, gateway_health):
+    def test_circuit_breaker_open_e2e(self, auth_token):
         """
         E2E: Lambda のクラッシュ時に Circuit Breaker が作動することを検証
 
@@ -187,14 +178,13 @@ class TestResilience:
         3. 4回目のリクエストで Circuit Breaker が OPEN し、即座に 502 が返る
         4. 復旧待ち後、正常リクエストが通ることを確認
         """
-        token = get_auth_token()
 
         # 1. ウォームアップ (コンテナ起動 & キャッシュ充填)
         print("Warming up lambda-faulty...")
         requests.post(
             f"{GATEWAY_URL}/api/faulty",
             json={"action": "hello"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {auth_token}"},
             verify=VERIFY_SSL,
         )
 
@@ -206,7 +196,7 @@ class TestResilience:
                 resp = requests.post(
                     f"{GATEWAY_URL}/api/faulty",
                     json={"action": "crash"},
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers={"Authorization": f"Bearer {auth_token}"},
                     verify=VERIFY_SSL,
                     timeout=10,
                 )
@@ -220,7 +210,7 @@ class TestResilience:
             resp = requests.post(
                 f"{GATEWAY_URL}/api/faulty",
                 json={"action": "hello"},
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {auth_token}"},
                 verify=VERIFY_SSL,
                 timeout=10,
             )
@@ -242,7 +232,7 @@ class TestResilience:
             resp = requests.post(
                 f"{GATEWAY_URL}/api/faulty",
                 json={"action": "hello"},
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {auth_token}"},
                 verify=VERIFY_SSL,
             )
             assert resp.status_code == 200, f"Recovery failed: {resp.text}"

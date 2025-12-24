@@ -17,7 +17,6 @@ from tests.fixtures.conftest import (
     VICTORIALOGS_URL,
     VERIFY_SSL,
     LOG_WAIT_TIMEOUT,
-    get_auth_token,
     query_victorialogs,
 )
 
@@ -25,7 +24,7 @@ from tests.fixtures.conftest import (
 class TestObservability:
     """ロギング・オブザーバビリティ機能の検証"""
 
-    def test_log_quality_and_level_control(self, gateway_health):
+    def test_log_quality_and_level_control(self, auth_token):
         """
         E2E: ロギングの品質と環境変数によるレベル制御の検証
         """
@@ -38,9 +37,6 @@ class TestObservability:
 
         debug_msg = f"DEBUG_LOG_VALIDATION_{uuid.uuid4()}"
 
-        # 認証
-        token = get_auth_token()
-
         # ヘッダーに検証用IDをセットしてリクエスト（Gatewayでログ出力されることを期待）
         # 同時に、ボディにデバッグメッセージを含めて、Lambda側でも（あれば）出力させる
         response = requests.post(
@@ -51,7 +47,7 @@ class TestObservability:
                 "debug_msg": debug_msg,
             },
             headers={
-                "Authorization": f"Bearer {token}",
+                "Authorization": f"Bearer {auth_token}",
                 "X-Amzn-Trace-Id": trace_id,
             },
             verify=VERIFY_SSL,

@@ -15,21 +15,18 @@ from tests.fixtures.conftest import (
     VERIFY_SSL,
     AUTH_USER,
     ASYNC_WAIT_RETRIES,
-    get_auth_token,
 )
 
 
 class TestLambdaInvoke:
     """Lambda 呼び出し機能の検証"""
 
-    def test_lambda_invocation(self, gateway_health):
+    def test_lambda_invocation(self, auth_token):
         """E2E: 認証 → ルーティング → Lambda呼び出し"""
-        token = get_auth_token()
-
         response = requests.post(
             f"{GATEWAY_URL}/api/s3",
             json={"action": "test", "bucket": "e2e-test-bucket"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {auth_token}"},
             verify=VERIFY_SSL,
         )
 
@@ -42,17 +39,15 @@ class TestLambdaInvoke:
         assert data["success"] is True
         assert data["user"] == AUTH_USER
 
-    def test_function_invocation_sync(self, gateway_health):
+    def test_function_invocation_sync(self, auth_token):
         """E2E: 同期呼び出し検証 (invoke-test -> hello)"""
-        token = get_auth_token()
-
         response = requests.post(
             f"{GATEWAY_URL}/api/invoke",
             json={
                 "target": "lambda-connectivity",
                 "type": "RequestResponse",
             },
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {auth_token}"},
             verify=VERIFY_SSL,
         )
 
@@ -69,9 +64,8 @@ class TestLambdaInvoke:
         inner_body = json.loads(inner_resp["body"])
         assert "Hello" in inner_body["message"]
 
-    def test_function_invocation_async(self, gateway_health):
+    def test_function_invocation_async(self, auth_token):
         """E2E: 非同期呼び出し検証 (invoke-test -> s3-test)"""
-        token = get_auth_token()
         bucket = "async-test-bucket"
         key = f"test-{int(time.time())}.txt"
 
@@ -79,7 +73,7 @@ class TestLambdaInvoke:
         requests.post(
             f"{GATEWAY_URL}/api/s3",
             json={"action": "create_bucket", "bucket": bucket},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {auth_token}"},
             verify=VERIFY_SSL,
         )
 
@@ -93,7 +87,7 @@ class TestLambdaInvoke:
                     "body": {"action": "put", "bucket": bucket, "key": key, "data": "Async Data"}
                 },
             },
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {auth_token}"},
             verify=VERIFY_SSL,
         )
 
@@ -113,7 +107,7 @@ class TestLambdaInvoke:
             check_resp = requests.post(
                 f"{GATEWAY_URL}/api/s3",
                 json={"action": "get", "bucket": bucket, "key": key},
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {auth_token}"},
                 verify=VERIFY_SSL,
             )
             check_data = check_resp.json()

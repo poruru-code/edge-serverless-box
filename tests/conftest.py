@@ -6,9 +6,11 @@ tests/ ディレクトリのルートに配置し、全テストで利用可能�
 
 # tests/fixtures/conftest.py から fixture と定数を再エクスポート
 from tests.fixtures.conftest import (
+    auth_token,  # noqa: F401
     gateway_health,  # noqa: F401
     get_auth_token,  # noqa: F401
     query_victorialogs,  # noqa: F401
+    request_with_retry,  # noqa: F401
     GATEWAY_URL,  # noqa: F401
     VICTORIALOGS_URL,  # noqa: F401
     VERIFY_SSL,  # noqa: F401

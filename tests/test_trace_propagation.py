@@ -3,11 +3,11 @@ import uuid
 import time
 import json
 from datetime import datetime, timezone
-from tests.fixtures.conftest import GATEWAY_URL, VERIFY_SSL, query_victorialogs, get_auth_token
+from tests.fixtures.conftest import GATEWAY_URL, VERIFY_SSL, query_victorialogs
 
 
 class TestTracePropagation:
-    def test_chained_trace_consistency(self, gateway_health):
+    def test_chained_trace_consistency(self, auth_token):
         """
         E2E: Client -> Gateway -> Lambda A -> Lambda B で Trace ID が維持されるか
 
@@ -27,15 +27,13 @@ class TestTracePropagation:
         custom_trace_id = f"Root=1-{epoch_hex}-{unique_id};Sampled=1"
         root_id = f"1-{epoch_hex}-{unique_id}"
 
-        token = get_auth_token()
-
         # 1. Lambda A を呼び出し、内部で Lambda B (connectivity) を呼び出させる
         payload = {"next_target": "lambda-connectivity"}
 
         response = requests.post(
             f"{GATEWAY_URL}/2015-03-31/functions/lambda-trace-chain/invocations",
             json=payload,
-            headers={"Authorization": f"Bearer {token}", "X-Amzn-Trace-Id": custom_trace_id},
+            headers={"Authorization": f"Bearer {auth_token}", "X-Amzn-Trace-Id": custom_trace_id},
             verify=VERIFY_SSL,
             timeout=30,
         )

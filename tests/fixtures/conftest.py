@@ -136,3 +136,49 @@ def query_victorialogs(
             time.sleep(1)
 
     return {"hits": []}
+
+
+@pytest.fixture(scope="module")
+def auth_token(gateway_health) -> str:
+    """認証トークンを取得 (モジュールスコープでキャッシュ)"""
+    return get_auth_token()
+
+
+def request_with_retry(
+    method: str,
+    url: str,
+    max_retries: int = 5,
+    retry_interval: float = 2.0,
+    retry_on_status: tuple[int, ...] = (500, 502, 503, 504),
+    **kwargs,
+) -> requests.Response:
+    """
+    リトライ付き HTTP リクエスト
+
+    Args:
+        method: HTTP メソッド (get, post, etc.)
+        url: リクエスト先 URL
+        max_retries: 最大リトライ回数
+        retry_interval: リトライ間隔 (秒)
+        retry_on_status: リトライ対象のステータスコード
+        **kwargs: requests に渡す追加パラメータ
+
+    Returns:
+        requests.Response オブジェクト
+    """
+    response = None
+    for i in range(max_retries):
+        try:
+            response = getattr(requests, method.lower())(url, **kwargs)
+            if response.status_code not in retry_on_status:
+                return response
+            print(f"Retry {i + 1}/{max_retries}: Status {response.status_code}")
+        except requests.exceptions.ConnectionError as e:
+            print(f"Connection error ({i + 1}/{max_retries}): {e}")
+            response = None
+
+        time.sleep(retry_interval)
+
+    if response is None:
+        raise requests.exceptions.ConnectionError(f"Failed to connect after {max_retries} retries")
+    return response

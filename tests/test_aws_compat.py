@@ -12,17 +12,14 @@ from tests.fixtures.conftest import (
     VERIFY_SSL,
     SCYLLA_WAIT_RETRIES,
     SCYLLA_WAIT_INTERVAL,
-    get_auth_token,
 )
 
 
 class TestAWSCompat:
     """AWS サービス互換性の検証"""
 
-    def test_scylla_integration(self, gateway_health):
+    def test_scylla_integration(self, auth_token):
         """E2E: ScyllaDB連携テスト"""
-        token = get_auth_token()
-
         # ScyllaDBの起動待ち（Lambdaが起動するまでリトライ）
         # WindowsのDocker Desktop (WSL2) ではScyllaDBの起動に3-5分かかる場合がある
         max_retries = SCYLLA_WAIT_RETRIES
@@ -33,7 +30,7 @@ class TestAWSCompat:
                 response = requests.post(
                     f"{GATEWAY_URL}/api/dynamo",
                     json={"action": "dynamo-test", "bucket": "e2e-test-bucket"},
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers={"Authorization": f"Bearer {auth_token}"},
                     verify=VERIFY_SSL,
                 )
 
