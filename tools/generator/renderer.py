@@ -39,6 +39,7 @@ def render_dockerfile(
     python_version = runtime.replace("python", "")
 
     context = {
+        "name": func_config.get("name", "unknown"),
         "python_version": python_version,
         "sitecustomize_source": docker_config.get(
             "sitecustomize_source", "runtime/sitecustomize.py"

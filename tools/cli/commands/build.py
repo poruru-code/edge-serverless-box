@@ -36,6 +36,18 @@ def build_base_image(no_cache=False):
         return False
 
 
+def _extract_function_name_from_dockerfile(dockerfile_path) -> str | None:
+    """Dockerfile から FunctionName を抽出する"""
+    try:
+        with open(dockerfile_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("# FunctionName:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return None
+
+
 def build_function_images(no_cache=False, verbose=False):
     """
     生成されたDockerfileを見つけてイメージをビルドする
@@ -51,9 +63,13 @@ def build_function_images(no_cache=False, verbose=False):
 
     # functionsディレクトリ以下のDockerfileを探索
     for dockerfile in sorted(functions_dir.rglob("Dockerfile")):
-        func_dir = dockerfile.parent
-        func_name = func_dir.name
-        image_tag = f"lambda-{func_name}:latest"
+        # Dockerfile から FunctionName を抽出
+        function_name = _extract_function_name_from_dockerfile(dockerfile)
+        if not function_name:
+            logging.warning(f"FunctionName not found in {dockerfile}, skipping.")
+            continue
+
+        image_tag = f"{function_name}:latest"
 
         print(f"  • Building {logging.highlight(image_tag)} ...", end="", flush=True)
         try:
