@@ -8,7 +8,7 @@ Lambda 呼び出しテスト (E2E)
 """
 
 import json
-from tests.fixtures.conftest import (
+from tests.conftest import (
     AUTH_USER,
     LOG_WAIT_TIMEOUT,
     query_victorialogs_by_filter,

@@ -7,7 +7,7 @@ S3 互換テスト (RustFS/MinIO)
 
 import uuid
 
-from tests.fixtures.conftest import call_api
+from tests.conftest import call_api
 
 
 class TestS3:

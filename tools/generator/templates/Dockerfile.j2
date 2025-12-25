@@ -3,24 +3,13 @@
 # Source: template.yaml
 # FunctionName: {{ name }}
 
-{% if zip_layers %}
-FROM alpine:latest AS layer-unzipper
-RUN apk add --no-cache unzip
-{% for layer in zip_layers %}
-COPY {{ layer.content_uri }} /tmp/{{ layer.name }}.zip
-RUN unzip /tmp/{{ layer.name }}.zip -d /opt/ || [ $? -eq 1 ]
-{% endfor %}
 
-{% endif %}
 FROM esb-lambda-base:latest
 
 # ESB Runtime
 COPY sitecustomize.py /opt/python/sitecustomize.py
-{% if zip_layers %}
-COPY --from=layer-unzipper /opt/ /opt/
-{% endif %}
-{% for layer in other_layers %}
 
+{% for layer in layers %}
 # Layer: {{ layer.name }}
 COPY {{ layer.content_uri }} /opt/
 {% endfor %}

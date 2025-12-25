@@ -8,7 +8,7 @@ Verify that:
 
 import time
 import uuid
-from tests.fixtures.conftest import (
+from tests.conftest import (
     query_victorialogs_by_filter,
     call_api,
     LOG_WAIT_TIMEOUT,

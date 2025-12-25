@@ -7,7 +7,7 @@ Gateway 基本機能テスト
 """
 
 import requests
-from tests.fixtures.conftest import (
+from tests.conftest import (
     GATEWAY_URL,
     VERIFY_SSL,
     call_api,

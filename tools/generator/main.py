@@ -16,9 +16,11 @@ Options:
 
 import argparse
 import sys
+import shutil
+import zipfile
+import yaml
 from pathlib import Path
 
-import yaml
 
 from .parser import parse_sam_template
 from .renderer import render_dockerfile, render_functions_yml, render_routing_yml
@@ -148,20 +150,39 @@ def generate_files(
                 layers_dir = dockerfile_dir / "layers"
                 layers_dir.mkdir(parents=True, exist_ok=True)
                 
-                if layer_src.is_file():
-                    # すでにファイル（Zip想定）の場合はそのままコピー
-                    staging_layer_path = layers_dir / target_name
-                    shutil.copy2(layer_src, staging_layer_path)
-                    layer_copy["content_uri"] = f"layers/{target_name}"
-                else:
-                    # ディレクトリの場合は Zip 化して Staging に置く
-                    # これにより、Dockerfile側で unzip すれば AWS Lambda と同じ構造（/opt/python/等）になる
-                    zip_base_name = layers_dir / target_name
+                # レイヤーごとのディレクトリ: layers/<layer_name>/
+                # unzip する場合もディレクトリごとする場合も、最終的にここ以下に配置する
+                staging_layer_root = layers_dir / target_name
+                # 一度クリーンアップ (念のため)
+                if staging_layer_root.exists():
+                    shutil.rmtree(staging_layer_root)
+                staging_layer_root.mkdir(parents=True, exist_ok=True)
+
+                if layer_src.is_file() and layer_src.suffix == '.zip':
+                    # Zipファイルの場合は展開して配置
                     if verbose:
-                        print(f"Archiving layer directory: {layer_src} -> {zip_base_name}.zip")
-                    shutil.make_archive(str(zip_base_name), 'zip', layer_src)
-                    layer_copy["content_uri"] = f"layers/{target_name}.zip"
+                        print(f"Unzipping layer: {layer_src} -> {staging_layer_root}")
+                    with zipfile.ZipFile(layer_src, 'r') as zip_ref:
+                        zip_ref.extractall(staging_layer_root)
+                    
+                    # Dockerfileにはディレクトリとして渡す
+                    layer_copy["content_uri"] = f"layers/{target_name}"
+
+                elif layer_src.is_dir():
+                    # ディレクトリの場合はそのままコピー
+                    if verbose:
+                        print(f"Copying layer directory: {layer_src} -> {staging_layer_root}")
+                    # staging_layer_root は既に作ったので、中身をコピーするために一度消して copytree するか、
+                    # あるいは dirs_exist_ok=True でコピーする
+                    shutil.copytree(layer_src, staging_layer_root, dirs_exist_ok=True)
+    
+                    layer_copy["content_uri"] = f"layers/{target_name}"
                 
+                else:
+                    if verbose:
+                        print(f"WARNING: Skipping unsupported layer type: {layer_src}")
+                    continue
+
                 new_layers.append(layer_copy)
         
         # この関数専用の、ローカルパスに書き換えたレイヤーリスト

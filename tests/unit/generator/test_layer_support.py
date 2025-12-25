@@ -28,9 +28,10 @@ def test_render_dockerfile_with_zip_layer():
     output = renderer.render_dockerfile(func, docker_config)
     print(f"\nDEBUG OUTPUT:\n{output}\n")
     
-    # Check for unzip logic
-    assert "FROM alpine:latest as layer-unzipper" in output
-    assert "COPY ./layers/lib.zip /tmp/lib-layer.zip" in output
-    assert "RUN unzip /tmp/lib-layer.zip -d /opt/" in output
-    # Non-zip layer should be normal COPY
+    # Check for simple COPY logic (no unzip)
+    assert "FROM alpine:latest as layer-unzipper" not in output
+    assert "RUN unzip" not in output
+    
+    # Renderer now just iterates and copies whatever URI is given
+    assert "COPY ./layers/lib.zip /opt/" in output
     assert "COPY ./layers/common/ /opt/" in output

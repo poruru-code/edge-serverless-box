@@ -37,15 +37,6 @@ def render_dockerfile(
     # Layerの分離 (Zip vs Directory)
     layers = func_config.get("layers", [])
     
-    zip_layers = [
-        l for l in layers 
-        if l.get("content_uri", "").rstrip("/").endswith(".zip")
-    ]
-    other_layers = [
-        l for l in layers 
-        if not l.get("content_uri", "").rstrip("/").endswith(".zip")
-    ]
-
     context = {
         "name": func_config.get("name", "unknown"),
         "python_version": python_version,
@@ -55,9 +46,7 @@ def render_dockerfile(
         "code_uri": func_config.get("code_uri", "./"),
         "handler": func_config.get("handler", "lambda_function.lambda_handler"),
         "has_requirements": func_config.get("has_requirements", False),
-        "layers": layers, # Keep full list for compatibility if needed, but we use separate lists now
-        "zip_layers": zip_layers,
-        "other_layers": other_layers,
+        "layers": layers,
     }
 
     return template.render(context)

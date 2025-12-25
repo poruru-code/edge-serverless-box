@@ -10,12 +10,12 @@ defaults:
     AWS_DEFAULT_REGION: "ap-northeast-1"
 
 functions:
-{%- for func in functions %}
+{% for func in functions %}
   {{ func.name }}:
-    {%- if func.environment %}
+    {% if func.environment %}
     environment:
-      {%- for key, value in func.environment.items() %}
+      {% for key, value in func.environment.items() %}
       {{ key }}: "{{ value }}"
-      {%- endfor %}
-    {%- endif %}
-{%- endfor %}
+      {% endfor %}
+    {% endif %}
+{% endfor %}
