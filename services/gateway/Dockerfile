@@ -1,19 +1,39 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
 # Install uv
 RUN pip install --no-cache-dir uv
 
-# Copy dependencies
-COPY pyproject.toml /app/
+# Create virtual environment
+ENV VIRTUAL_ENV=/app/.venv
+RUN uv venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Copy dependencies definition and source for package installation
+COPY pyproject.toml README.md /app/
+# tools package is required for "pip install ." as per pyproject.toml
+COPY tools /app/tools
 
 # Install dependencies (Cache layer)
 # pyproject.toml から requirements.txt を生成してインストールすることで、
 # 依存関係の変更漏れを防ぎつつ、キャッシュを有効活用する
-# 注意: requirements.txt 生成のために一時ファイルが必要な場合があるため
 RUN uv pip compile pyproject.toml -o requirements.txt && \
-    uv pip install --system --break-system-packages -r requirements.txt
+    uv pip install -r requirements.txt
+
+# Install the project itself to generate metadata (dist-info)
+# This fixes: PROJECT_NAME = metadata("edge-serverless-box")["Name"]
+RUN uv pip install .
+
+# Final stage
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH=/app
 
 # Copy services code
 COPY services/common /app/services/common
