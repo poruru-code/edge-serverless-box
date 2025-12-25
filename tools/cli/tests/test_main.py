@@ -17,6 +17,7 @@ def test_cli_help(capsys):
     assert "up" in captured.out
     assert "watch" in captured.out
     assert "down" in captured.out
+    assert "init" in captured.out
 
 
 @patch("tools.cli.commands.build.run")
@@ -36,3 +37,39 @@ def test_cli_up_dispatch(mock_up_run):
     args = mock_up_run.call_args[0][0]
     assert args.build is True
     assert args.detach is True  # デフォルト値
+
+
+@patch("tools.cli.commands.init.run")
+def test_cli_init_dispatch(mock_init_run):
+    """init サブコマンドが正しくディスパッチされるか確認"""
+    with patch.object(sys, "argv", ["esb", "init"]):
+        main()
+    mock_init_run.assert_called_once()
+
+
+@patch("tools.cli.commands.init.run")
+@patch("tools.cli.config.set_template_yaml")
+def test_cli_template_argument(mock_set_template, mock_init_run):
+    """--template 引数が set_template_yaml を呼び出すか確認"""
+    with patch.object(sys, "argv", ["esb", "--template", "/path/to/template.yaml", "init"]):
+        main()
+    mock_set_template.assert_called_once_with("/path/to/template.yaml")
+    mock_init_run.assert_called_once()
+
+
+@patch("tools.cli.commands.down.run")
+def test_cli_down_dispatch(mock_down_run):
+    """down サブコマンドが正しくディスパッチされるか確認"""
+    with patch.object(sys, "argv", ["esb", "down"]):
+        main()
+    mock_down_run.assert_called_once()
+
+
+@patch("tools.cli.commands.down.run")
+def test_cli_down_volumes_flag(mock_down_run):
+    """down --volumes フラグが正しく渡されるか確認"""
+    with patch.object(sys, "argv", ["esb", "down", "--volumes"]):
+        main()
+    mock_down_run.assert_called_once()
+    args = mock_down_run.call_args[0][0]
+    assert args.volumes is True
