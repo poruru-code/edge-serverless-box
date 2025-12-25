@@ -21,25 +21,36 @@ TOOLS_DIR = PROJECT_ROOT / "tools"
 GENERATOR_DIR = TOOLS_DIR / "generator"
 PROVISIONER_DIR = TOOLS_DIR / "provisioner"
 
-# パス優先順位:
-# 1. 環境変数 ESB_TEMPLATE
-# 2. カレントディレクトリの template.yaml
-# 3. プロジェクトルート直下の template.yaml
-# 4. tests/fixtures/template.yaml (デフォルト)
 
-env_template = os.environ.get("ESB_TEMPLATE")
-if env_template:
-    TEMPLATE_YAML = Path(env_template).resolve()
-elif (Path.cwd() / "template.yaml").exists():
-    TEMPLATE_YAML = Path.cwd() / "template.yaml"
-elif (PROJECT_ROOT / "template.yaml").exists():
-    TEMPLATE_YAML = PROJECT_ROOT / "template.yaml"
-else:
-    TEMPLATE_YAML = PROJECT_ROOT / "tests" / "e2e" / "template.yaml"
+def _resolve_template_yaml() -> Path:
+    """テンプレートパスを解決する（デフォルト探索）"""
+    # パス優先順位:
+    # 1. 環境変数 ESB_TEMPLATE
+    # 2. カレントディレクトリの template.yaml
+    # 3. プロジェクトルート直下の template.yaml
+    # 4. tests/fixtures/template.yaml (デフォルト)
+    env_template = os.environ.get("ESB_TEMPLATE")
+    if env_template:
+        return Path(env_template).resolve()
+    elif (Path.cwd() / "template.yaml").exists():
+        return Path.cwd() / "template.yaml"
+    elif (PROJECT_ROOT / "template.yaml").exists():
+        return PROJECT_ROOT / "template.yaml"
+    else:
+        return PROJECT_ROOT / "tests" / "fixtures" / "template.yaml"
 
-# テンプレートがあるディレクトリを E2E_DIR 相当として扱う (Dockerfile等の探索起点)
+
+# デフォルト値で初期化
+TEMPLATE_YAML = _resolve_template_yaml()
 E2E_DIR = TEMPLATE_YAML.parent
-
-# 出力パス設定
 DEFAULT_ROUTING_YML = E2E_DIR / "config" / "routing.yml"
 DEFAULT_FUNCTIONS_YML = E2E_DIR / "config" / "functions.yml"
+
+
+def set_template_yaml(template_path: str) -> None:
+    """CLI引数からテンプレートパスを設定する（最優先）"""
+    global TEMPLATE_YAML, E2E_DIR, DEFAULT_ROUTING_YML, DEFAULT_FUNCTIONS_YML
+    TEMPLATE_YAML = Path(template_path).resolve()
+    E2E_DIR = TEMPLATE_YAML.parent
+    DEFAULT_ROUTING_YML = E2E_DIR / "config" / "routing.yml"
+    DEFAULT_FUNCTIONS_YML = E2E_DIR / "config" / "functions.yml"

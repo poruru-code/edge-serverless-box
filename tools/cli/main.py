@@ -15,6 +15,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Edge Serverless Box CLI", formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    parser.add_argument(
+        "--template", "-t", type=str, help="Path to SAM template.yaml (default: auto-detect)"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Command to execute")
 
     # --- build command ---
@@ -50,6 +53,12 @@ def main():
     reset_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
 
     args = parser.parse_args()
+
+    # --template オプションが指定された場合、コンフィグを上書き
+    if args.template:
+        from tools.cli.config import set_template_yaml
+
+        set_template_yaml(args.template)
 
     try:
         if args.command == "build":
