@@ -87,7 +87,8 @@ def generate_files(
         code_uri = func["code_uri"]
 
         # code_uri からディレクトリ名を決定
-        func_dir = project_root / code_uri
+        # template.yaml からの相対パスとして解決
+        func_dir = sam_template_path.parent / code_uri
         dockerfile_path = func_dir / "Dockerfile"
 
         # requirements.txt の存在チェック
