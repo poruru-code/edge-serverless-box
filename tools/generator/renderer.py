@@ -23,7 +23,11 @@ def render_dockerfile(
         func_config: 関数設定
         docker_config: Docker設定
     """
-    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
+    env = Environment(
+        loader=FileSystemLoader(TEMPLATE_DIR),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
     template = env.get_template("Dockerfile.j2")
 
     # ランタイムからPythonバージョンを抽出
@@ -73,7 +77,11 @@ def render_functions_yml(
     Returns:
         functions.yml文字列
     """
-    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
+    env = Environment(
+        loader=FileSystemLoader(TEMPLATE_DIR),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
     template = env.get_template("functions.yml.j2")
 
     return template.render(functions=functions)
@@ -93,7 +101,11 @@ def render_routing_yml(
     Returns:
         routing.yml文字列
     """
-    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
+    env = Environment(
+        loader=FileSystemLoader(TEMPLATE_DIR),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
     template = env.get_template("routing.yml.j2")
 
     return template.render(functions=functions)
