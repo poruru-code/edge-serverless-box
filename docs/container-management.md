@@ -24,11 +24,11 @@ flowchart TD
     end
 ```
 
-| レイヤー | 内容 | 更新頻度 |
-|---------|------|---------|
-| AWS Lambda RIE | 公式Pythonランタイム | 低 |
-| `esb-lambda-base` | sitecustomize.py (AWS SDKパッチ) | 低 |
-| Lambda関数イメージ | Layers + 関数コード | 高 |
+| レイヤー           | 内容                             | 更新頻度 |
+| ------------------ | -------------------------------- | -------- |
+| AWS Lambda RIE     | 公式Pythonランタイム             | 低       |
+| `esb-lambda-base`  | sitecustomize.py (AWS SDKパッチ) | 低       |
+| Lambda関数イメージ | Layers + 関数コード              | 高       |
 
 ## ビルドプロセス
 
@@ -81,33 +81,43 @@ Lambda RIE コンテナは Manager により動的に管理されます。Manage
 sequenceDiagram
     participant Client
     participant Gateway
+    participant PoolManager
     participant Manager
     participant Lambda
 
     Client->>Gateway: リクエスト
-    Gateway->>Manager: コンテナ状態確認
+    Gateway->>PoolManager: acquire_worker
     
-    alt コンテナ未起動
+    alt アイドルコンテナあり
+        PoolManager-->>Gateway: コンテナ情報 (Reuse)
+    else キャパ余裕あり
+        PoolManager->>Manager: provision_containers
         Manager->>Lambda: docker run
         Lambda-->>Manager: 起動完了
+        Manager-->>PoolManager: コンテナ情報
+        PoolManager-->>Gateway: コンテナ情報 (New)
+    else フル稼働
+        PoolManager->>PoolManager: キューで待機
+        Note over PoolManager: 他の実行が完了し次第割り当て
     end
     
-    Manager-->>Gateway: ホスト:ポート情報
     Gateway->>Lambda: Lambda Invoke
     Lambda-->>Gateway: レスポンス
+    Gateway->>PoolManager: release_worker
     Gateway-->>Client: レスポンス
     
-    Note over Manager,Lambda: アイドルタイムアウト後に自動停止
+    Note over Manager,Lambda: 一定時間のリクエスト不在(ハートビート途絶)で自動停止
 ```
 
 ### コンテナ状態遷移
 
-| 状態 | 説明 |
-|-----|------|
-| `STOPPED` | コンテナ未起動 |
-| `STARTING` | コンテナ起動中 |
-| `RUNNING` | リクエスト受付可能 |
-| `IDLE` | アイドル状態（自動停止待ち） |
+| 状態           | 説明                                     |
+| -------------- | ---------------------------------------- |
+| `STOPPED`      | コンテナ未起動                           |
+| `PROVISIONING` | 新規コンテナ作成中                       |
+| `BUSY`         | リクエスト処理中（プールから払い出し中） |
+| `IDLE`         | リクエスト待機中（プール内で再利用可能） |
+| `CLEANUP`      | 長期間未使用による自動削除対象           |
 
 ## 運用コマンド
 

@@ -40,6 +40,7 @@ graph TD
     SAM テンプレートを解析し、中間設定ファイル（`routing.yml`, `functions.yml`）を生成します。
     - `AWS::Serverless::Function` リソースの抽出
     - `Events` プロパティからの API ルーティング情報の抽出
+    - `ReservedConcurrentExecutions` からの最大同時実行数 (`max_capacity`) の抽出
 
 3.  **Renderer (`tools/generator/renderer.py`)** -> **Phase 2**
     抽出された関数メタデータに基づき、Jinja2 テンプレートを使用して具体的なランタイムアーティファクトを生成します。

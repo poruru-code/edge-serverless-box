@@ -19,6 +19,10 @@ graph TD
         DB["ScyllaDB<br>(:8001)"]
         Logs["VictoriaLogs<br>(:9428)"]
         
+        Gateway -->|Pool Management| PoolManager[PoolManager]
+        PoolManager -->|Capacity Control| ContainerPool[ContainerPool]
+        PoolManager -->|Status Sync| HeartbeatJanitor[HeartbeatJanitor]
+        
         Lambda["Lambda Function<br>(Ephemeral Containers)"]
     end
 
@@ -29,6 +33,7 @@ graph TD
     User -->|Web UI| Logs
     
     Gateway -->|HTTP| Manager
+    HeartbeatJanitor -->|Heartbeat| Manager
     Gateway -->|AWS SDK| RustFS
     Gateway -->|AWS SDK| DB
     Gateway -->|HTTP| Lambda
@@ -56,25 +61,29 @@ gateway/app/
 ├── models/              # データモデル
 │   └── auth.py          # 認証関連スキーマ
 └── services/            # ビジネスロジック
-    ├── container_cache.py # コンテナホスト情報のLRUキャッシュ
+    ├── container_pool.py  # セマフォベースの同時実行制御とプーリング
+    ├── heartbeat.py       # Managerへの稼働状態送信(Heartbeat)
     ├── lambda_invoker.py  # Lambda(RIE)へのHTTPリクエスト送信
+    ├── pool_manager.py    # コンテナの取得・返却・ライフサイクル管理
     └── route_matcher.py   # routing.ymlベースのパスマッチング
 ```
 
 #### 主要コンポーネント
-| モジュール                  | 責務                                                                 |
-| --------------------------- | -------------------------------------------------------------------- |
-| `core/proxy.py`             | API Gateway Lambda Proxy Integration互換イベント構築、Lambda RIE転送 |
-| `services/container_cache.py` | コンテナ接続先情報のキャッシュ管理 |
-| `services/lambda_invoker.py` | `httpx` を使用した Lambda RIE へのリクエスト送信 |
+| モジュール                   | 責務                                                                 |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `core/proxy.py`              | API Gateway Lambda Proxy Integration互換イベント構築、Lambda RIE転送 |
+| `services/pool_manager.py`   | コンテナのキャパシティ確保、プロビジョニング要求、返却管理           |
+| `services/container_pool.py` | 関数ごとのセマフォ管理とコンテナインスタンスの保持                   |
+| `services/lambda_invoker.py` | `httpx` を使用した Lambda RIE へのリクエスト送信                     |
 
 ### 2.2 Manager Service (Internal)
 - **役割**: Lambdaコンテナのライフサイクル管理（オンデマンド起動、アイドル停止、再起動時の復元）。
-- **通信**: GatewayからのHTTPリクエストによりDocker APIを操作。
+- **通信**: GatewayからのHTTPリクエストおよびHeartbeatによりDocker APIを操作。
 - **機能**:
     - `POST /containers/ensure`: コンテナ起動・Ready確認
+    - `POST /containers/heartbeat`: 稼働中コンテナ情報の更新（ゾンビ回避）
     - `Adopt & Sync`: サービス起動時の既存コンテナ復元
-    - 定期的なアイドルコンテナの停止
+    - 定期的なアイドルコンテナの停止（ハートビートがないコンテナを優先削除）
 
 ### 2.3 RustFS (Storage)
 - **役割**: AWS S3互換のオブジェクトストレージ。Lambdaコードやデータの保存に使用。
