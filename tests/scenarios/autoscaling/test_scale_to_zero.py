@@ -42,10 +42,10 @@ SKIP_REASON = (
 class TestScaleToZero:
     """
     Tests for Scale-to-Zero functionality.
-    
+
     These tests verify that containers are automatically cleaned up after
     being idle for the configured timeout period.
-    
+
     IMPORTANT: These tests require:
     - IDLE_TIMEOUT_MINUTES=1 (or 2) to run in reasonable time
     - Containers must be in a clean state before running
@@ -54,7 +54,7 @@ class TestScaleToZero:
     def test_idle_container_cleanup(self, auth_token):
         """
         Verify that an idle container is cleaned up after IDLE_TIMEOUT.
-        
+
         Steps:
         1. Invoke Lambda to provision a container
         2. Verify container is running
@@ -65,12 +65,14 @@ class TestScaleToZero:
 
         # 1. Provision a container
         print("[Step 1] Invoking Lambda to provision container...")
-        response = call_api("/api/echo", auth_token, {"message": "scale-to-zero-test"})
+        response = call_api(
+            "/api/scaling", auth_token, {"message": "scale-to-zero-test", "sleep_ms": 100}
+        )
         assert response.status_code == 200, f"Lambda invocation failed: {response.text}"
 
         # 2. Verify container is running
         time.sleep(2)  # Allow container state to stabilize
-        initial_count = get_container_count("echo")
+        initial_count = get_container_count("scaling")
         print(f"[Step 2] Container count after invocation: {initial_count}")
         assert initial_count >= 1, "Container should be running after invocation"
 
@@ -78,24 +80,24 @@ class TestScaleToZero:
         # Add 30 seconds buffer for cleanup scheduler delay
         wait_time = (IDLE_TIMEOUT_MINUTES * 60) + 30
         print(f"[Step 3] Waiting {wait_time}s for idle timeout and cleanup...")
-        
+
         # Poll periodically to detect early cleanup
         elapsed = 0
         poll_interval = 15
         while elapsed < wait_time:
             time.sleep(poll_interval)
             elapsed += poll_interval
-            current_count = get_container_count("echo")
+            current_count = get_container_count("scaling")
             print(f"  [{elapsed}s] Container count: {current_count}")
-            
+
             if current_count == 0:
                 print(f"[Step 4] Container cleaned up after ~{elapsed}s")
                 return  # SUCCESS
 
         # 4. Final check
-        final_count = get_container_count("echo")
+        final_count = get_container_count("scaling")
         print(f"[Step 4] Final container count: {final_count}")
-        
+
         assert final_count == 0, (
             f"Container should be cleaned up after {IDLE_TIMEOUT_MINUTES}m idle. "
             f"Still running: {final_count} containers"
@@ -104,7 +106,7 @@ class TestScaleToZero:
     def test_active_container_not_cleaned(self, auth_token):
         """
         Verify that containers receiving requests are NOT cleaned up.
-        
+
         Steps:
         1. Invoke Lambda to provision a container
         2. Send periodic requests to keep it active
@@ -114,11 +116,13 @@ class TestScaleToZero:
 
         # 1. Provision a container
         print("[Step 1] Invoking Lambda to provision container...")
-        response = call_api("/api/echo", auth_token, {"message": "active-test-init"})
+        response = call_api(
+            "/api/scaling", auth_token, {"message": "active-test-init", "sleep_ms": 100}
+        )
         assert response.status_code == 200
 
         time.sleep(2)
-        initial_ids = get_container_ids("echo")
+        initial_ids = get_container_ids("scaling")
         assert len(initial_ids) >= 1, "Container should be running"
         initial_id = initial_ids[0] if initial_ids else None
         print(f"[Step 1] Initial container ID: {initial_id}")
@@ -135,20 +139,22 @@ class TestScaleToZero:
             elapsed += request_interval
 
             # Send a keep-alive request
-            response = call_api("/api/echo", auth_token, {"message": f"keepalive-{elapsed}"})
-            current_ids = get_container_ids("echo")
-            
-            print(f"  [{elapsed}s] Request status: {response.status_code}, Containers: {len(current_ids)}")
-            
+            response = call_api("/api/scaling", auth_token, {"message": f"keepalive-{elapsed}"})
+            current_ids = get_container_ids("scaling")
+
+            print(
+                f"  [{elapsed}s] Request status: {response.status_code}, Containers: {len(current_ids)}"
+            )
+
             assert response.status_code == 200, "Keep-alive request should succeed"
             assert len(current_ids) >= 1, "Container should still be running"
 
         # 3. Final verification
-        final_ids = get_container_ids("echo")
+        final_ids = get_container_ids("scaling")
         print(f"[Step 3] Final container count: {len(final_ids)}")
-        
+
         assert len(final_ids) >= 1, "Active container should NOT be cleaned up"
-        
+
         # Verify it's the same container (reuse)
         if initial_id and final_ids:
             assert initial_id == final_ids[0], (

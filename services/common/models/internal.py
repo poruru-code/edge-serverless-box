@@ -1,5 +1,5 @@
 from typing import Optional, Dict, List
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 
@@ -8,12 +8,14 @@ from pydantic import BaseModel, Field
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass
 class WorkerInfo:
     """
     コンテナの状態管理に必要なメタデータ
 
-    frozen=True で hashable になり、Set で使用可能。
+    Auto-Scaling対応:
+    - frozen=False に変更 (last_used_at 更新のため)
+    - __eq__, __hash__ を id ベースに変更 (Set/Dict 内での同一性保持)
     """
 
     id: str  # コンテナID (Docker ID)
@@ -21,6 +23,15 @@ class WorkerInfo:
     ip_address: str  # コンテナIP (実行用)
     port: int = 8080  # サービスポート
     created_at: float = 0.0  # 作成時刻
+    last_used_at: float = 0.0  # 最終使用時刻 (Auto-Scaling用)
+
+    def __eq__(self, other):
+        if isinstance(other, WorkerInfo):
+            return self.id == other.id
+        return False
+
+    def __hash__(self):
+        return hash(self.id)
 
 
 class ContainerProvisionRequest(BaseModel):
@@ -69,4 +80,3 @@ class ContainerInfoResponse(BaseModel):
 
     host: str = Field(..., description="コンテナのホスト名またはIP")
     port: int = Field(..., description="サービスポート番号")
-

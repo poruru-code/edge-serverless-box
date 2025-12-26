@@ -48,7 +48,9 @@ class GatewayConfig(BaseAppConfig):
     CONTAINERS_NETWORK: str = Field(..., description="Lambdaコンテナの所属ネットワーク")
     GATEWAY_INTERNAL_URL: str = Field(..., description="コンテナから見たGateway URL")
     ORCHESTRATOR_URL: str = Field(..., description="OrchestratorサービスURL")
-    ORCHESTRATOR_TIMEOUT: float = Field(default=30.0, description="Orchestrator通信タイムアウト(秒)")
+    ORCHESTRATOR_TIMEOUT: float = Field(
+        default=30.0, description="Orchestrator通信タイムアウト(秒)"
+    )
     LAMBDA_INVOKE_TIMEOUT: float = Field(default=30.0, description="Lambda呼び出しタイムアウト(秒)")
 
     # サーキットブレーカー設定
@@ -58,13 +60,14 @@ class GatewayConfig(BaseAppConfig):
     )
 
     # Auto-Scaling (Feature Flag)
-    ENABLE_CONTAINER_POOLING: bool = Field(
-        default=False, description="コンテナプーリングを有効化"
-    )
+    ENABLE_CONTAINER_POOLING: bool = Field(default=False, description="コンテナプーリングを有効化")
     DEFAULT_MAX_CAPACITY: int = Field(default=1, description="デフォルト最大容量")
     DEFAULT_MIN_CAPACITY: int = Field(default=0, description="デフォルト最小容量")
     POOL_ACQUIRE_TIMEOUT: float = Field(default=5.0, description="ワーカー取得タイムアウト")
     HEARTBEAT_INTERVAL: int = Field(default=30, description="Heartbeat送信間隔(秒)")
+    GATEWAY_IDLE_TIMEOUT_SECONDS: int = Field(
+        default=300, description="Gateway側アイドルタイムアウト(秒)"
+    )
 
     # FastAPI設定
     root_path: str = Field(default="", description="APIのルートパス（プロキシ用）")

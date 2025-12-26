@@ -7,6 +7,7 @@ capacity control. Supports concurrent acquire/release with proper cleanup on evi
 
 import asyncio
 import logging
+import time
 from typing import Callable, Awaitable, List, Set
 
 from services.common.models.internal import WorkerInfo
@@ -93,6 +94,7 @@ class ContainerPool:
 
     def release(self, worker: WorkerInfo) -> None:
         """ワーカーをプールに返却"""
+        worker.last_used_at = time.time()  # Mark as idle from now
         self._idle_workers.put_nowait(worker)
         self._sem.release()  # 枠解放 → 待機者が起きる
 
@@ -108,6 +110,88 @@ class ContainerPool:
     def get_all_names(self) -> List[str]:
         """Heartbeat用: Busy も Idle もすべて含む Name リスト"""
         return [w.name for w in self._all_workers]
+
+    def get_all_workers(self) -> List[WorkerInfo]:
+        """現在管理している全ワーカーを取得"""
+        return list(self._all_workers)
+
+    @property
+    def size(self) -> int:
+        """現在の総ワーカー数"""
+        return len(self._all_workers)
+
+    def prune_idle_workers(self, idle_timeout: float) -> List[WorkerInfo]:
+        """
+        IDLE_TIMEOUT を超えたワーカーをプールから除外
+
+        Note:
+             This is a SYNC method because it manages internal state directly.
+             It forcibly removes items from _idle_workersQueue.
+             Since asyncio.Queue doesn't support random access removal,
+             we drain it and refill surviving items.
+        """
+        now = time.time()
+        pruned = []
+        surviving = []
+
+        # 1. Drain the queue completely
+        while not self._idle_workers.empty():
+            try:
+                worker = self._idle_workers.get_nowait()
+                if now - worker.last_used_at > idle_timeout:
+                    # Prune target
+                    self._all_workers.discard(worker)
+                    pruned.append(worker)
+                else:
+                    surviving.append(worker)
+            except asyncio.QueueEmpty:
+                break
+
+        # 2. Refill surviving workers
+        for w in surviving:
+            self._idle_workers.put_nowait(w)
+
+        # 3. Adjust Semaphore for pruned workers
+        # Since we removed from idle queue (where it was available for acquire),
+        # but acquire logic consumes from queue OR creates new if queue empty.
+        # Removing from queue effectively "consumes" the resource without returning it.
+        # But wait. Pruning REDUCES capacity usage?
+        # NO. We just removed an idle worker.
+        # The semaphore tracks "Available Capacity".
+        # If we have 1 idle worker, acquire() takes it (Sem down).
+        # If we remove it, acquire() creates new (Sem down).
+        # The semaphore state doesn't track "How many idle workers".
+        # It tracks "How many executions allowed".
+        # So we don't touch semaphore.
+        pass
+
+        return pruned
+
+    def adopt(self, worker: WorkerInfo) -> None:
+        """起動時にコンテナをプールに取り込み"""
+        worker.last_used_at = time.time()  # Mark as idle from adopt time
+        self._all_workers.add(worker)
+        self._idle_workers.put_nowait(worker)
+        # Release semaphore to reflect available resource
+        # See notes in prune_idle_workers regarding semaphore logic.
+        # Adopt implies we found an EXISTING resource that can be used.
+        # Queueing it makes it available to acquire().
+        pass
+
+    def drain(self) -> List[WorkerInfo]:
+        """終了時に全ワーカーを排出"""
+        workers = list(self._all_workers)
+        self._all_workers.clear()
+
+        # Drain idle queue
+        while not self._idle_workers.empty():
+            try:
+                self._idle_workers.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        # Recreating semaphore? No need as we are draining instance.
+        return workers
 
     @property
     def stats(self) -> dict:

@@ -161,6 +161,42 @@ async def provision_containers(req: ContainerProvisionRequest):
 
 @app.post("/containers/heartbeat")
 async def heartbeat(req: HeartbeatRequest):
-    """ Gateway からの Heartbeat 受信 """
+    """Gateway からの Heartbeat 受信"""
     await orchestrator.update_heartbeat(req.function_name, req.container_names)
     return {"status": "ok"}
+
+
+@app.delete("/containers/{container_id}")
+async def delete_container(container_id: str):
+    """コンテナを即時削除"""
+    try:
+        await orchestrator.stop_container(container_id)
+        return {"status": "deleted"}
+    except docker.errors.NotFound:
+        raise HTTPException(status_code=404, detail="Container not found")
+    except Exception as e:
+        logger.error(f"Error deleting container: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/containers/sync")
+async def list_containers():
+    """全コンテナ一覧を取得 (Adoption用)"""
+    try:
+        containers = await orchestrator.list_managed_containers()
+        return {
+            "containers": [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "ip_address": c.ip_address,
+                    "port": c.port,
+                    "created_at": c.created_at,
+                    "last_used_at": c.last_used_at,
+                }
+                for c in containers
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error listing containers: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

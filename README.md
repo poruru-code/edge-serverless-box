@@ -8,7 +8,7 @@
 - **Integrated Developer Experience (CLI)**: 専用 CLI ツール `esb` を提供。環境構築からホットリロード開発まで、コマンド一つでシームレスな開発体験を提供します。
 - **Production-Ready Architecture**: 外部公開用の `Gateway` と特権を持つ `Orchestrator` を分離したマイクロサービス構成により、セキュリティと耐障害性を実現しています。
 - **Full Stack in a Box**: S3互換ストレージ (RustFS)、DynamoDB互換DB (ScyllaDB)、ログ基盤を同梱しており、`esb up` だけで完全なクラウドネイティブ環境が手に入ります。
-- **Efficient Orchestration**: コンテナオーケストレーション技術により、Lambda関数コンテナをオンデマンドで起動・プーリング。`ReservedConcurrentExecutions` に基づくオートスケーリングとアイドル時の自動停止によりリソースを最適化します。
+- **Efficient Orchestration**: コンテナオーケストレーション技術により、Lambda関数コンテナをオンデマンドで起動・プーリング。`ReservedConcurrentExecutions` に基づくオートスケーリングと、**Scale-to-Zero (アイドル時自動停止)** によりリソースを最適化します。Gateway 再起動時の状態復元 (**State Sync**) にも対応。
 
 ### CLI コマンド一覧
 

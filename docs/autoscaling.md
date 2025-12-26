@@ -1,48 +1,80 @@
-# オートスケーリングとコンテナ・プーリング
+# オートスケーリングとコンテナ・ライフサイクル管理 (v2.1)
 
 ## 概要
 
-Edge Serverless Box (ESB) は、Lambda 関数の同時実行リクエストを効率的に処理し、リソースの利用効率を最大化するために、セマフォベースのオートスケーリングとコンテナ・プーリング機能を備えています。
+Edge Serverless Box (ESB) は、Lambda関数の同時実行リクエストを効率的に処理し、リソース利用効率を最大化するために、高度なオートスケーリングとコンテナ・プーリング機能（v2.1）を備えています。
 
-この機能により、バースト的なリクエストに対しては自動的にコンテナをプロビジョニングし、アイドル状態のコンテナはプールに返却して再利用、または一定時間後にクリーンアップすることで、クラウドに近い実行モデルをローカル環境で実現します。
+新機能である **Scale-to-Zero (Active Pruning)** により、アイドル状態のコンテナを能動的に削除し、完全なリソース解放を実現します。また、**Adoption (State Sync)** により、Gateway再起動時の耐障害性も確保しています。
 
 ## アーキテクチャ
 
-オートスケーリング機能は主に Gateway サービス内の `PoolManager` によって制御されます。
+オートスケーリング機能は主に Gateway 内の `PoolManager` と `ContainerPool` によって制御され、Orchestrator と連携してコンテナのライフサイクルを管理します。
 
 ```mermaid
 flowchart TD
-    subgraph Gateway Gateway
-        InvokerLambda Invoker --> PMPoolManager
-        PM --> CPContainerPool
-        PM --> JanitorHeartbeatJanitor
+    subgraph Gateway [Gateway]
+        Invoker[Lambda Invoker] --> PM[PoolManager]
+        PM --> CP[ContainerPool]
+        PM --> Janitor[HeartbeatJanitor]
+        
+        CP -- acquire/release --> PM
     end
 
-    subgraph Orchestrator Orchestrator
-        ServiceOrchestrator Service
+    subgraph Orchestrator [Orchestrator]
+        Service[Orchestrator Service]
+        Docker[Docker Adaptor]
+        
+        %% ここでServiceがAdaptorを呼び出す関係を明示
+        Service -- Uses --> Docker
     end
 
-    subgraph Workers Workers
-        C1Lambda Container 1
-        C2Lambda Container 2
+    subgraph Workers [Active Containers]
+        C1[Lambda Container 1]
+        C2[Lambda Container 2]
     end
 
-    CP -->|acquire/release| PM
-    PM -->|ensure| Service
-    Service -->|run/stop| Workers
-    Janitor -->|heartbeat| Service
+    PM -- Provision/Delete --> Service
+    Janitor -- Sync/Heartbeat --> Service
+    
+    %% Docker Adaptorが実際のDocker APIを実行してコンテナを操作する
+    Docker -- Docker API --> C1
+    Docker -- Docker API --> C2
 ```
 
 ### 主要コンポーネント
 
-1.  **`PoolManager`**: Gateway のエントリポイント。リクエストごとに `ContainerPool` からワーカーを取得（またはプロビジョニングを要求）し、実行後に返却します。
-2.  **`ContainerPool`**: 特定の関数ごとのコンテナインスタンスを管理します。`asyncio.Semaphore` を使用して同時実行数 (`max_capacity`) を制御します。
-3.  **`HeartbeatJanitor`**: 稼働中の全コンテナのリストを定期的に `Orchestrator` に送信します。これにより、Orchestrator は「現在 Gateway が使用しているコンテナ」を正確に把握し、誤ったクリーンアップを防ぎます。
-4.  **`Orchestrator Service`**: コンテナの実体（Dockerコンテナ）の起動・停止を担当します。Gateway から届くハートビートに基づき、長期間未使用のコンテナを安全に削除します。
+1.  **`PoolManager`**: Gateway のエントリポイント。全関数のプールを統括し、Gateway 起動時の状態同期 (Sync) や終了時の全削除 (Shutdown) を指示します。
+2.  **`ContainerPool`**: 関数ごとのコンテナプール。`asyncio.Semaphore` による同時実行数 (`ResrvedConcurrentExecutions`) 制御と、アイドルコンテナの追跡を行います。
+3.  **`HeartbeatJanitor`**: 定期的にプールを巡回し、以下の責務を担います。
+    *   **Active Pruning**: アイドルタイムアウトを超過したコンテナを検出し、削除リストを作成。
+    *   **Heartbeat**: 稼働中のコンテナ名リストを Orchestrator に送信し、Orchestrator 側のウォッチドッグタイマーをリセット。
+4.  **`Orchestrator Service`**: Gateway からの指示でコンテナを操作するほか、Gateway からのハートビートが途絶えた孤児コンテナを強制削除するセーフガード機能を持ちます。
+
+## コンテナ・ライフサイクル
+
+v2.1 では、コンテナの状態遷移がより厳密に管理されています。
+
+### 1. Provisioning (起動)
+リクエスト受信時、プールに空きコンテナがなく、かつ最大同時実行数 (`MAX_CAPACITY`) に達していない場合、Gateway は Orchestrator に新規コンテナ作成を依頼します。
+
+### 2. Pooling (待機)
+リクエスト処理が完了したコンテナはプールに戻され (`release`)、設定されたタイムアウトまでアイドル状態で待機します。これにより後続リクエストのコールドスタートを防ぎます。
+
+### 3. Scale-to-Zero (自動削除)
+v2.1 の核となる機能です。
+
+*   **Active Pruning**: Gateway 側の `Janitor` が定期的にプールをチェックします。最終利用時刻 (`last_used_at`) から `GATEWAY_IDLE_TIMEOUT_SECONDS` を経過したコンテナはプールから除外され、Orchestrator に対して即座に `DELETE` リクエストが送信されます。
+*   **Safety Net**: 万が一 Gateway がクラッシュした場合、Orchestrator 側の `CONTAINER_IDLE_TIMEOUT` (Gateway設定より短い/長い設定可) により、ハートビートが途絶えたコンテナが削除されます。
+
+### 4. Adoption (再起動時の復元)
+Gateway が再起動した際、Orchestrator に `GET /containers/sync` をリクエストします。既に稼働中のコンテナがある場合、それらを自身のプールに取り込み (`adopt`)、サービス提供を即座に再開します。これにより、Gateway 再起動によるコールドスタートの発生を防ぎます。
+
+### 5. Draining (終了時の排出)
+Gateway が正常終了 (SIGTERM) する際、管理下の全コンテナに対して削除リクエストを送信し、リソースをクリーンな状態に戻します。
 
 ## 設定
 
-オートスケーリングの挙動は `template.yaml` および環境変数で制御可能です。
+オートスケーリングの挙動は環境変数と `template.yaml` で制御します。
 
 ### SAM テンプレート設定
 
@@ -52,47 +84,39 @@ flowchart TD
 MyFunction:
   Type: AWS::Serverless::Function
   Properties:
-    FunctionName: my-function
-    ReservedConcurrentExecutions: 5  # 最大5コンテナまで並列稼働
-    # ...
+    ReservedConcurrentExecutions: 5  # 最大5コンテナまでスケールアウト
 ```
 
-*   **未指定の場合**: デフォルト値（通常 50）が適用されます。
-*   **0 の場合**: 同時実行が禁止されます。
+### 環境変数設定
 
-### 環境変数 (Gateway)
+プーリングとタイムアウトの挙動は以下の環境変数で調整します。**二重タイムアウト設計**により、積極的な削除と安全性確保を両立しています。
 
-| 変数名                     | 説明                                                | デフォルト値 |
-| -------------------------- | --------------------------------------------------- | ------------ |
-| `ENABLE_CONTAINER_POOLING` | オートスケーリング機能（コンテナプール）の有効/無効 | `False`      |
-| `HEARTBEAT_INTERVAL`       | Orchestrator へのハートビート送信間隔（秒）              | `30`         |
-| `POOL_ACQUIRE_TIMEOUT`     | 全ワーカーが使用中の場合の待機タイムアウト（秒）    | `5.0`        |
+| 変数名 | 設定箇所 | 説明 | デフォルト値 |
+| :--- | :--- | :--- | :--- |
+| `ENABLE_CONTAINER_POOLING` | Gateway | プーリング機能の有効化 | `true` |
+| `GATEWAY_IDLE_TIMEOUT_SECONDS` | Gateway | **Active Pruning 用**。この時間を超えたアイドルコンテナは Gateway が能動的に削除します。 | `300` (5分) |
+| `CONTAINER_IDLE_TIMEOUT` | Orchestrator | **セーフガード用**。Gateway からのハートビートがこの時間を超えて途絶えると、Orchestrator が強制削除します。 | `90` |
+| `HEARTBEAT_INTERVAL` | Gateway | Orchestrator へのハートビート送信間隔（秒）。 | `30` |
 
-## 動作原理
+> [!NOTE]
+> `GATEWAY_IDLE_TIMEOUT_SECONDS` は、ユーザー体験（コールドスタート回避）とリソース節約のバランスを決める主要なパラメータです。
 
-### 1. リクエスト受付とキャパシティ確保
-リクエストが届くと、`PoolManager` は対象関数の `ContainerPool` に対してセマフォの取得 (`acquire`) を試みます。
+## 動作フロー詳細
 
-*   **アイドルコンテナがある場合**: 即座にそのコンテナを割り当てます（再利用）。
-*   **空きはないがキャパシティに余裕がある場合**: 新規コンテナのプロビジョニングを `Manager` に要求し、起動完了後に割り当てます。
-*   **フル稼働状態の場合**: セマフォが解放されるまで待機（キューイング）します。
-    *   `POOL_ACQUIRE_TIMEOUT` を経過しても空きが出ない場合は `503 Service Unavailable` を返します。
+### リクエスト処理フロー
+1.  **Request**: Gateway がリクエスト受信
+2.  **Acquire**: `ContainerPool` からセマフォ取得
+    *   *Idleあり*: 取得して `last_used_at` 更新
+    *   *Idleなし*: `Managed Provisioning` 実行 → 新規コンテナ起動
+3.  **Invoke**: コンテナに対して Lambda 実行
+4.  **Release**: コンテナをプールに返却 (`last_used_at` 更新)
 
-### 2. リソースの解放
-Lambda の実行が完了（成功・失敗・タイムアウト問わず）すると、コンテナはプールに返却 (`release`) され、待機中の次のリクエストが利用可能になります。
+### Janitor フロー (周期実行)
+1.  **Pruning**: 各プールをスキャン。`last_used_at` > timeout のコンテナをリストアップ。
+2.  **Deletion**: リストアップされたコンテナを `DELETE` API で削除。
+3.  **Heartbeat**: 残存している全コンテナの ID リストを Orchestrator に送信 (`POST /containers/heartbeat`)。
 
-### 3. Scale to Zero (スケールダウン)
-リクエストが一定時間（Orchestrator 側の `idle_timeout`：デフォルト 5分）途絶えたコンテナは、Orchestrator によって自動的に停止・削除されます。
+## 制限事項
 
-*   **メリット**: 未使用のリソースを完全に解放し、エッジ環境の限られた CPU/メモリを節約します。
-*   **注意点**: 0 個の状態から最初のリクエストが届いた際は、コンテナの起動待ち（Cold Start）が発生し、レスポンス時間が数秒増加します。
-
-### 4. セルフヒーリングとクリーンアップ
-コンテナがクラッシュしたり、通信エラーが発生した場合、`evict` メソッドによってプールから除外されます。この際もセマフォは解放されるため、システム全体のデッドロックを防ぎつつ、次のリクエストで新しいコンテナが作成されます。
-
-長期間リクエストがないコンテナは、Orchestrator 側の Janitor ロジックによって自動的に停止・削除されます。
-
-## 注意事項
-
-*   **Cold Start**: 新規プロビジョニング時は Docker コンテナの起動時間がかかるため、レイテンシが増加します（コールドスタート）。
-*   **Docker Socket**: Orchestrator が Docker API を操作するため、DinD 環境では適切な Docker Socket のマウントが必要です。
+*   **Cold Start**: Scale-to-Zero 状態からの初回リクエストは、Docker コンテナ起動のため数秒の遅延が発生します。
+*   **Docker Socket**: Orchestrator は Docker API を操作するため、適切な権限設定が必要です。

@@ -42,10 +42,10 @@ SKIP_REASON = (
 class TestScaleOut:
     """
     Tests for Scale-Out functionality.
-    
+
     These tests verify that multiple containers are spawned when there is
     sufficient capacity and concurrent demand.
-    
+
     IMPORTANT: These tests require:
     - DEFAULT_MAX_CAPACITY > 1 (e.g., 3)
     - Containers should be in a clean state before running
@@ -54,7 +54,7 @@ class TestScaleOut:
     def test_multiple_containers_spawn(self, auth_token):
         """
         Verify that multiple concurrent requests cause multiple containers to spawn.
-        
+
         Steps:
         1. Send MAX_CAPACITY concurrent requests with long execution
         2. Verify that multiple containers are running
@@ -67,26 +67,29 @@ class TestScaleOut:
             """Invoke a request that takes some time to complete"""
             # Using echo with a unique message
             return call_api(
-                "/api/echo",
+                "/api/scaling",
                 auth_token,
-                {"message": f"scale-out-{req_id}-{'x' * 1000}"},  # Larger payload
+                {
+                    "message": f"scale-out-{req_id}-{'x' * 1000}",
+                    "sleep_ms": 2000,
+                },  # Larger payload + sleep
                 timeout=60,
             )
 
         # 1. Send concurrent requests equal to max capacity
         print(f"[Step 1] Sending {max_capacity} concurrent requests...")
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_capacity) as executor:
             # Submit all requests
             futures = [executor.submit(invoke_slow, i) for i in range(max_capacity)]
-            
+
             # Wait a moment for containers to start spawning
             time.sleep(3)
-            
+
             # Check container count while requests are in-flight (before completion)
-            mid_count = get_container_count("echo")
+            mid_count = get_container_count("scaling")
             print(f"[Step 2] Container count during execution: {mid_count}")
-            
+
             # Wait for all requests to complete
             results = [f.result() for f in futures]
 
@@ -98,7 +101,7 @@ class TestScaleOut:
             )
 
         # 3. Check final container count
-        final_count = get_container_count("echo")
+        final_count = get_container_count("scaling")
         print(f"[Step 4] Final container count: {final_count}")
 
         # With MAX_CAPACITY > 1, multiple containers should have been spawned
@@ -112,51 +115,55 @@ class TestScaleOut:
     def test_respects_max_capacity(self, auth_token):
         """
         Verify that container count does not exceed MAX_CAPACITY.
-        
+
         Steps:
         1. Send more requests than MAX_CAPACITY
         2. Verify container count never exceeds MAX_CAPACITY
         """
         max_capacity = DEFAULT_MAX_CAPACITY
         num_requests = max_capacity * 2  # Send double the capacity
-        print(f"\n[Capacity Limit] Testing {num_requests} requests against MAX_CAPACITY={max_capacity}")
+        print(
+            f"\n[Capacity Limit] Testing {num_requests} requests against MAX_CAPACITY={max_capacity}"
+        )
 
         def invoke(req_id: int):
             return call_api(
-                "/api/echo",
+                "/api/scaling",
                 auth_token,
-                {"message": f"capacity-limit-{req_id}"},
+                {"message": f"capacity-limit-{req_id}", "sleep_ms": 500},
                 timeout=60,
             )
 
         # Track max observed container count
         max_observed_count = 0
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_requests) as executor:
             futures = [executor.submit(invoke, i) for i in range(num_requests)]
-            
+
             # Poll container count during execution
             poll_count = 0
             while not all(f.done() for f in futures) and poll_count < 20:
-                current_count = get_container_count("echo")
+                current_count = get_container_count("scaling")
                 max_observed_count = max(max_observed_count, current_count)
                 print(f"  [{poll_count}] Container count: {current_count}")
-                
+
                 # Check that we don't exceed capacity
                 assert current_count <= max_capacity, (
                     f"Container count {current_count} exceeds MAX_CAPACITY {max_capacity}"
                 )
-                
+
                 time.sleep(0.5)
                 poll_count += 1
-            
+
             # Collect results
             results = [f.result() for f in futures]
 
         # All requests should succeed (some may queue)
         success_count = sum(1 for r in results if r.status_code == 200)
-        print(f"[Result] {success_count}/{num_requests} requests succeeded, max containers: {max_observed_count}")
-        
+        print(
+            f"[Result] {success_count}/{num_requests} requests succeeded, max containers: {max_observed_count}"
+        )
+
         assert success_count == num_requests, (
             f"Expected all {num_requests} requests to succeed, got {success_count}"
         )

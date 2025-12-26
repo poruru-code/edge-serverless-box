@@ -6,7 +6,7 @@ TDD: RED phase - write tests first, then implement.
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 
 class TestHeartbeatJanitor:
@@ -22,6 +22,7 @@ class TestHeartbeatJanitor:
                 "function-b": ["w3"],
             }
         )
+        pm.prune_all_pools = AsyncMock(return_value={})
         return pm
 
     @pytest.fixture
@@ -40,6 +41,7 @@ class TestHeartbeatJanitor:
             pool_manager=mock_pool_manager,
             manager_client=mock_manager_client,
             interval=1,  # Fast interval for testing
+            idle_timeout=60.0,  # Added
         )
 
     def test_janitor_creation(self, janitor, mock_pool_manager, mock_manager_client):
@@ -47,6 +49,7 @@ class TestHeartbeatJanitor:
         assert janitor.pool_manager is mock_pool_manager
         assert janitor.manager_client is mock_manager_client
         assert janitor.interval == 1
+        assert janitor.idle_timeout == 60.0
         assert janitor._task is None
 
     @pytest.mark.asyncio
@@ -68,9 +71,21 @@ class TestHeartbeatJanitor:
         assert mock_manager_client.heartbeat.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_send_heartbeat_with_empty_pool(
-        self, mock_pool_manager, mock_manager_client
+    async def test_send_heartbeat_prunes_first(
+        self, janitor, mock_pool_manager, mock_manager_client
     ):
+        """_send_heartbeat should prune pools BEFORE sending heartbeat"""
+        # Call
+        await janitor._send_heartbeat()
+
+        # Verify prune called
+        mock_pool_manager.prune_all_pools.assert_awaited_with(60.0)
+
+        # Verify get_all_worker_names called
+        mock_pool_manager.get_all_worker_names.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_send_heartbeat_with_empty_pool(self, mock_pool_manager, mock_manager_client):
         """_send_heartbeat should not call heartbeat for empty functions"""
         from services.gateway.services.janitor import HeartbeatJanitor
 
@@ -78,11 +93,13 @@ class TestHeartbeatJanitor:
         mock_pool_manager.get_all_worker_names = MagicMock(
             return_value={"function-a": []}  # Empty list
         )
+        mock_pool_manager.prune_all_pools = AsyncMock(return_value={})
 
         janitor = HeartbeatJanitor(
             pool_manager=mock_pool_manager,
             manager_client=mock_manager_client,
             interval=1,
+            idle_timeout=60.0,
         )
 
         await janitor._send_heartbeat()

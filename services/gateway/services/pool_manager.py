@@ -8,7 +8,7 @@ capacity management.
 
 import asyncio
 import logging
-from typing import Callable, Dict, List, Any
+from typing import Callable, Dict, List, Any, Optional
 
 from .container_pool import ContainerPool
 from services.common.models.internal import WorkerInfo
@@ -82,4 +82,64 @@ class PoolManager:
         result = {}
         for fname, pool in self._pools.items():
             result[fname] = pool.get_all_names()
+        return result
+
+    def _extract_function_name(self, name: str) -> Optional[str]:
+        """
+        コンテナ名から関数名を抽出
+        Format: lambda-{function_name}-{suffix}
+        """
+        if not name.startswith("lambda-"):
+            return None
+
+        parts = name.split("-")
+        if len(parts) < 3:
+            return None
+
+        # parts[0] is "lambda"
+        # parts[-1] is suffix (uuid)
+        # function_name is in between
+        return "-".join(parts[1:-1])
+
+    async def sync_with_manager(self) -> None:
+        """Orchestrator から既存コンテナを取得しプールに取り込み"""
+        try:
+            containers = await self.provision_client.list_containers()
+            adopted_count = 0
+            for worker in containers:
+                function_name = self._extract_function_name(worker.name)
+                if function_name:
+                    pool = await self.get_pool(function_name)
+                    pool.adopt(worker)
+                    adopted_count += 1
+            if adopted_count > 0:
+                logger.info(f"Adopted {adopted_count} containers from Orchestrator")
+        except Exception as e:
+            logger.error(f"Failed to sync with manager: {e}")
+
+    async def shutdown_all(self) -> None:
+        """全プールをドレインし、コンテナを削除"""
+        logger.info("Shutting down all pools...")
+        for fname, pool in self._pools.items():
+            workers = pool.drain()
+            for w in workers:
+                try:
+                    await self.provision_client.delete_container(w.id)
+                except Exception as e:
+                    logger.error(f"Failed to delete {w.name}: {e}")
+
+    async def prune_all_pools(self, idle_timeout: float) -> Dict[str, List[WorkerInfo]]:
+        """全プールで Pruning を実行し、Orchestrator から削除"""
+        result = {}
+        for fname, pool in self._pools.items():
+            pruned = pool.prune_idle_workers(idle_timeout)
+            if pruned:
+                result[fname] = pruned
+                # Delete from orchestrator
+                for w in pruned:
+                    try:
+                        await self.provision_client.delete_container(w.id)
+                        logger.info(f"Pruned and deleted idle container: {w.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete pruned container {w.name}: {e}")
         return result

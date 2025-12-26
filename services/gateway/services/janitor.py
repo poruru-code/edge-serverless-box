@@ -27,16 +27,20 @@ class HeartbeatJanitor:
         pool_manager: "PoolManager",
         manager_client,  # ManagerClient or mock
         interval: int = 30,
+        idle_timeout: float = 300.0,
     ):
         self.pool_manager = pool_manager
         self.manager_client = manager_client
         self.interval = interval
+        self.idle_timeout = idle_timeout
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Heartbeat Loop 開始"""
         self._task = asyncio.create_task(self._loop())
-        logger.info(f"Heartbeat Janitor started (interval: {self.interval}s)")
+        logger.info(
+            f"Heartbeat Janitor started (interval: {self.interval}s, idle_timeout: {self.idle_timeout}s)"
+        )
 
     async def stop(self) -> None:
         """Heartbeat Loop 停止"""
@@ -60,7 +64,16 @@ class HeartbeatJanitor:
                 logger.error(f"Heartbeat failed: {e}")
 
     async def _send_heartbeat(self) -> None:
-        """Heartbeat 送信"""
+        """Pruning 後に Heartbeat 送信"""
+        # 1. まず Pruning を実行
+        try:
+            pruned = await self.pool_manager.prune_all_pools(self.idle_timeout)
+            for fname, workers in pruned.items():
+                logger.info(f"Pruned {len(workers)} idle workers from {fname}")
+        except Exception as e:
+            logger.error(f"Pruning failed: {e}")
+
+        # 2. 残っているワーカーの名前リストを送信
         worker_names = self.pool_manager.get_all_worker_names()
         for function_name, names in worker_names.items():
             if names:  # Only send if there are workers

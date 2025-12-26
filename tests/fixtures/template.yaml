@@ -120,3 +120,15 @@ Resources:
           Properties:
             Path: /api/faulty
             Method: post
+
+  ScalingTestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-scaling
+      CodeUri: functions/scaling/
+      Events:
+        ScalingApi:
+          Type: Api
+          Properties:
+            Path: /api/scaling
+            Method: post

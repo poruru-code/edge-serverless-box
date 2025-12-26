@@ -4,7 +4,6 @@ import logging
 import asyncio
 import uuid
 from typing import Dict, List, Optional
-from importlib.metadata import metadata
 
 import httpx
 from .docker_adaptor import DockerAdaptor
@@ -206,6 +205,34 @@ class ContainerOrchestrator:
         if to_remove:
             logger.info(f"Cleanup completed. Removed: {to_remove}")
 
+    async def stop_container(self, container_id: str) -> None:
+        """
+        指定されたコンテナを停止
+
+        Gatewayからの明示的な終了要求(Draining)などで使用
+        """
+        try:
+            # DockerAdaptor expects a Container object, not a string ID
+            container = await self.docker.get_container(container_id)
+            await self.docker.stop_container(container)
+            await self.docker.remove_container(container, force=True)  # Ensure removal
+        except docker.errors.NotFound:
+            logger.warning(f"Container {container_id} not found during stop request.")
+        except Exception as e:
+            logger.error(f"Failed to stop container {container_id}: {e}")
+
+        # last_accessed からの削除
+        if container_id in self.last_accessed:
+            del self.last_accessed[container_id]
+
+    async def list_managed_containers(self) -> List[WorkerInfo]:
+        """
+        管理下の全コンテナ一覧を取得
+
+        Gateway起動時のSync(Adoption)に使用
+        """
+        return await self.docker.list_containers()
+
     async def prune_managed_containers(self):
         """
         Kills and removes containers managed by this service (zombies).
@@ -350,9 +377,7 @@ class ContainerOrchestrator:
 
         return workers
 
-    async def update_heartbeat(
-        self, function_name: str, container_names: List[str]
-    ) -> None:
+    async def update_heartbeat(self, function_name: str, container_names: List[str]) -> None:
         """
         Gateway からの Heartbeat を受信
 
@@ -363,6 +388,4 @@ class ContainerOrchestrator:
             # 存在チェックをして更新 (Adoption も兼ねる)
             self.last_accessed[name] = now
 
-        logger.debug(
-            f"Heartbeat updated for {function_name}: {len(container_names)} containers"
-        )
+        logger.debug(f"Heartbeat updated for {function_name}: {len(container_names)} containers")

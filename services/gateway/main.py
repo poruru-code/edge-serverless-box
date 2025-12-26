@@ -119,8 +119,35 @@ async def lifespan(app: FastAPI):
                         ip_address=w["ip_address"],
                         port=w.get("port", config.LAMBDA_PORT),
                         created_at=w.get("created_at", 0.0),
+                        last_used_at=w.get("last_used_at", 0.0),
                     )
                     for w in data["workers"]
+                ]
+
+            async def delete_container(self, container_id: str):
+                """Delete a container"""
+                url = f"{self.manager_url}/containers/{container_id}"
+                response = await self.client.delete(url, timeout=config.ORCHESTRATOR_TIMEOUT)
+                response.raise_for_status()
+
+            async def list_containers(self):
+                """List all managed containers"""
+                from services.common.models.internal import WorkerInfo
+
+                url = f"{self.manager_url}/containers/sync"
+                response = await self.client.get(url, timeout=config.ORCHESTRATOR_TIMEOUT)
+                response.raise_for_status()
+                data = response.json()
+                return [
+                    WorkerInfo(
+                        id=w["id"],
+                        name=w["name"],
+                        ip_address=w["ip_address"],
+                        port=w.get("port", config.LAMBDA_PORT),
+                        created_at=w.get("created_at", 0.0),
+                        last_used_at=w.get("last_used_at", 0.0),
+                    )
+                    for w in data["containers"]
                 ]
 
         def config_loader(function_name: str):
@@ -154,10 +181,10 @@ async def lifespan(app: FastAPI):
                 self.client = http_client
                 self.manager_url = manager_url
 
-            async def heartbeat(self, function_name: str, container_ids: list):
+            async def heartbeat(self, function_name: str, container_names: list):
                 await self.client.post(
                     f"{self.manager_url}/containers/heartbeat",
-                    json={"function_name": function_name, "container_ids": container_ids},
+                    json={"function_name": function_name, "container_names": container_names},
                     timeout=10.0,
                 )
 
@@ -166,10 +193,17 @@ async def lifespan(app: FastAPI):
             pool_manager=pool_manager,
             manager_client=heartbeat_client,
             interval=config.HEARTBEAT_INTERVAL,
+            idle_timeout=config.GATEWAY_IDLE_TIMEOUT_SECONDS,
         )
 
+        # 1. Sync active containers (Adoption)
+        await pool_manager.sync_with_manager()
+
+        # 2. Start Janitor (Heartbeat + Pruning)
         await janitor.start()
-        logger.info(f"Auto-Scaling enabled: PoolManager + HeartbeatJanitor (interval: {config.HEARTBEAT_INTERVAL}s)")
+        logger.info(
+            f"Auto-Scaling enabled: PoolManager + HeartbeatJanitor (interval: {config.HEARTBEAT_INTERVAL}s, idle: {config.GATEWAY_IDLE_TIMEOUT_SECONDS}s)"
+        )
 
     # Create LambdaInvoker with optional pool_manager
     lambda_invoker = LambdaInvoker(
@@ -198,6 +232,10 @@ async def lifespan(app: FastAPI):
     # Cleanup
     if janitor:
         await janitor.stop()
+
+    if pool_manager:
+        await pool_manager.shutdown_all()
+
     logger.info("Gateway shutting down, closing http client.")
     await client.aclose()
 

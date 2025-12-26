@@ -144,6 +144,7 @@ services:
       - DEFAULT_MIN_CAPACITY=${DEFAULT_MIN_CAPACITY:-0}
       - POOL_ACQUIRE_TIMEOUT=${POOL_ACQUIRE_TIMEOUT:-5.0}
       - HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-30}
+      - GATEWAY_IDLE_TIMEOUT_SECONDS=${GATEWAY_IDLE_TIMEOUT_SECONDS:-300}
     depends_on:
       orchestrator:
         condition: service_started

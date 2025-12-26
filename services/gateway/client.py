@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import asyncio
 import httpx
 import logging
@@ -10,7 +10,11 @@ from .core.exceptions import (
 )
 from .services.container_cache import ContainerHostCache
 from services.common.core.request_context import get_trace_id
-from services.common.models.internal import ContainerEnsureRequest, ContainerInfoResponse
+from services.common.models.internal import (
+    ContainerEnsureRequest,
+    ContainerInfoResponse,
+    WorkerInfo,
+)
 from .config import config
 
 logger = logging.getLogger("gateway.client")
@@ -82,6 +86,28 @@ class OrchestratorClient:
             raise
         finally:
             self._pending_requests.pop(function_name, None)
+
+    async def delete_container(self, container_id: str) -> None:
+        """コンテナを即時削除"""
+        try:
+            url = f"{config.ORCHESTRATOR_URL}/containers/{container_id}"
+            resp = await self.client.delete(url, timeout=config.ORCHESTRATOR_TIMEOUT)
+            resp.raise_for_status()
+        except Exception as e:
+            logger.error(f"Failed to delete container {container_id}: {e}")
+            raise
+
+    async def list_containers(self) -> List["WorkerInfo"]:
+        """全コンテナ一覧を取得"""
+        try:
+            url = f"{config.ORCHESTRATOR_URL}/containers/sync"
+            resp = await self.client.get(url, timeout=config.ORCHESTRATOR_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+            return [WorkerInfo(**c) for c in data.get("containers", [])]
+        except Exception as e:
+            logger.error(f"Failed to list containers: {e}")
+            raise
 
     async def _fetch_from_manager(
         self, function_name: str, image: Optional[str], env: Optional[Dict[str, str]]
