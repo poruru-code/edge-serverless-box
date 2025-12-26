@@ -44,7 +44,7 @@ class HeartbeatRequest(BaseModel):
     """Gateway -> Manager: Heartbeat (Janitor用)"""
 
     function_name: str = Field(..., description="関数名")
-    container_ids: List[str] = Field(..., description="現在プールで保持しているコンテナIDリスト")
+    container_names: List[str] = Field(..., description="現在プールで保持しているコンテナ名リスト")
 
 
 # =============================================================================

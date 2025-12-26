@@ -16,10 +16,10 @@ class TestHeartbeatJanitor:
     def mock_pool_manager(self):
         """Mock PoolManager"""
         pm = MagicMock()
-        pm.get_all_worker_ids = MagicMock(
+        pm.get_all_worker_names = MagicMock(
             return_value={
-                "function-a": ["c1", "c2"],
-                "function-b": ["c3"],
+                "function-a": ["w1", "w2"],
+                "function-b": ["w3"],
             }
         )
         return pm
@@ -75,7 +75,7 @@ class TestHeartbeatJanitor:
         from services.gateway.services.janitor import HeartbeatJanitor
 
         # Empty pool
-        mock_pool_manager.get_all_worker_ids = MagicMock(
+        mock_pool_manager.get_all_worker_names = MagicMock(
             return_value={"function-a": []}  # Empty list
         )
 

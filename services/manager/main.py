@@ -161,10 +161,6 @@ async def provision_containers(req: ContainerProvisionRequest):
 
 @app.post("/containers/heartbeat")
 async def heartbeat(req: HeartbeatRequest):
-    """
-    Heartbeat: Gateway が保持しているコンテナIDを通知
-    Janitor がこのリストに載っていないコンテナを孤児と判定
-    """
-    await manager.update_heartbeat(req.function_name, req.container_ids)
+    """ Gateway からの Heartbeat 受信 """
+    await manager.update_heartbeat(req.function_name, req.container_names)
     return {"status": "ok"}
-

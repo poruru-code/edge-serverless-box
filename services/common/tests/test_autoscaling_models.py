@@ -157,24 +157,24 @@ class TestHeartbeatRequest:
     """Tests for HeartbeatRequest model"""
 
     def test_heartbeat_request(self):
-        """HeartbeatRequest should contain function_name and container_ids"""
+        """HeartbeatRequest should contain function_name and container_names"""
         from services.common.models.internal import HeartbeatRequest
 
         req = HeartbeatRequest(
             function_name="hello-world",
-            container_ids=["c1", "c2", "c3"],
+            container_names=["c1", "c2", "c3"],
         )
 
         assert req.function_name == "hello-world"
-        assert req.container_ids == ["c1", "c2", "c3"]
+        assert req.container_names == ["c1", "c2", "c3"]
 
-    def test_heartbeat_request_empty_ids(self):
-        """HeartbeatRequest with empty container_ids list"""
+    def test_heartbeat_request_empty_names(self):
+        """HeartbeatRequest with empty container_names list"""
         from services.common.models.internal import HeartbeatRequest
 
         req = HeartbeatRequest(
             function_name="hello-world",
-            container_ids=[],
+            container_names=[],
         )
 
-        assert req.container_ids == []
+        assert req.container_names == []

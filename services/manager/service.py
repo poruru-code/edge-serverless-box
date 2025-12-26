@@ -283,75 +283,86 @@ class ContainerManager:
         if image is None:
             image = f"{function_name}:latest"
 
-        for _ in range(count):
-            suffix = uuid.uuid4().hex[:8]
-            container_name = f"lambda-{function_name}-{suffix}"
+        try:
+            for _ in range(count):
+                suffix = uuid.uuid4().hex[:8]
+                container_name = f"lambda-{function_name}-{suffix}"
 
-            # Cold start - 新規コンテナ作成
-            logger.info(f"Provisioning container: {container_name}")
+                # Cold start - 新規コンテナ作成
+                logger.info(f"Provisioning container: {container_name}")
 
-            container_env = (env or {}).copy()
-            container_env["PYTHONUNBUFFERED"] = "1"
+                container_env = (env or {}).copy()
+                container_env["PYTHONUNBUFFERED"] = "1"
 
-            # VictoriaLogs URL を Lambda に注入
-            import os
+                # VictoriaLogs URL を Lambda に注入
+                import os
 
-            vl_host = os.environ.get("VICTORIALOGS_HOST", "victorialogs")
-            vl_port = os.environ.get("VICTORIALOGS_PORT", "9428")
-            container_env["VICTORIALOGS_URL"] = f"http://{vl_host}:{vl_port}/insert/jsonline"
-            container_env["AWS_LAMBDA_FUNCTION_NAME"] = function_name
+                vl_host = os.environ.get("VICTORIALOGS_HOST", "victorialogs")
+                vl_port = os.environ.get("VICTORIALOGS_PORT", "9428")
+                container_env["VICTORIALOGS_URL"] = f"http://{vl_host}:{vl_port}/insert/jsonline"
+                container_env["AWS_LAMBDA_FUNCTION_NAME"] = function_name
 
-            container = await self.docker.run_container(
-                image,
-                name=container_name,
-                detach=True,
-                environment=container_env,
-                network=self.network,
-                restart_policy={"Name": "no"},
-                labels={"created_by": PROJECT_NAME},
-            )
-
-            # Reload container to get IP
-            await self.docker.reload_container(container)
-            try:
-                ip = container.attrs["NetworkSettings"]["Networks"][self.network]["IPAddress"]
-                if not ip:
-                    ip = container_name
-            except KeyError:
-                ip = container_name
-
-            # Wait for readiness
-            await self._wait_for_readiness(ip)
-
-            # Track last access
-            self.last_accessed[container_name] = time.time()
-
-            workers.append(
-                WorkerInfo(
-                    id=container.id,
+                container = await self.docker.run_container(
+                    image,
                     name=container_name,
-                    ip_address=ip,
-                    port=config.LAMBDA_PORT,
-                    created_at=time.time(),
+                    detach=True,
+                    environment=container_env,
+                    network=self.network,
+                    restart_policy={"Name": "no"},
+                    labels={"created_by": PROJECT_NAME},
                 )
-            )
+
+                # Reload container to get IP
+                await self.docker.reload_container(container)
+                try:
+                    ip = container.attrs["NetworkSettings"]["Networks"][self.network]["IPAddress"]
+                    if not ip:
+                        ip = container_name
+                except KeyError:
+                    ip = container_name
+
+                # Wait for readiness
+                await self._wait_for_readiness(ip)
+
+                # Track last access
+                self.last_accessed[container_name] = time.time()
+
+                workers.append(
+                    WorkerInfo(
+                        id=container.id,
+                        name=container_name,
+                        ip_address=ip,
+                        port=config.LAMBDA_PORT,
+                        created_at=time.time(),
+                    )
+                )
+        except Exception as e:
+            logger.error(f"Provisioning failed for {function_name}: {e}")
+            # Cleanup created containers in this batch
+            for w in workers:
+                try:
+                    logger.info(f"Cleanup: Removing failed provision container {w.name}")
+                    await self.docker.remove_container_by_name(w.name)
+                    self.last_accessed.pop(w.name, None)
+                except Exception as ce:
+                    logger.warning(f"Cleanup failed for {w.name}: {ce}")
+            raise
 
         return workers
 
     async def update_heartbeat(
-        self, function_name: str, container_ids: List[str]
+        self, function_name: str, container_names: List[str]
     ) -> None:
         """
         Gateway からの Heartbeat を受信
 
-        受信したコンテナIDはアクティブとみなし、last_accessed を更新する。
-        このリストに載っていないコンテナは孤児 (Orphan) の可能性がある。
+        受信したコンテナ名はアクティブとみなし、last_accessed を更新する。
         """
         now = time.time()
-        for cid in container_ids:
-            # コンテナIDからコンテナ名を逆引きする必要がある場合はここで処理
-            # 現状は単純に全コンテナの last_accessed を更新
-            pass
+        for name in container_names:
+            # 存在チェックをして更新 (Adoption も兼ねる)
+            self.last_accessed[name] = now
 
-        logger.debug(f"Heartbeat received for {function_name}: {len(container_ids)} containers")
-
+        logger.debug(
+            f"Heartbeat updated for {function_name}: {len(container_names)} containers"
+        )

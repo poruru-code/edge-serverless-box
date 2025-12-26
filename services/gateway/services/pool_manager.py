@@ -77,9 +77,9 @@ class PoolManager:
         if function_name in self._pools:
             self._pools[function_name].evict(worker)
 
-    def get_all_worker_ids(self) -> Dict[str, List[str]]:
-        """Heartbeat用: 全プールの全Worker IDを収集 (Busy + Idle)"""
+    def get_all_worker_names(self) -> Dict[str, List[str]]:
+        """Heartbeat用: 全プールの全Worker Nameを収集 (Busy + Idle)"""
         result = {}
         for fname, pool in self._pools.items():
-            result[fname] = pool.get_all_ids()
+            result[fname] = pool.get_all_names()
         return result

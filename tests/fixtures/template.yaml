@@ -105,7 +105,7 @@ Resources:
           Properties:
             Path: /api/echo
             Method: post
-      ReservedConcurrentExecutions: 5
+      ReservedConcurrentExecutions: 1
       ProvisionedConcurrencyConfig:
         ProvisionedConcurrentExecutions: 1
 

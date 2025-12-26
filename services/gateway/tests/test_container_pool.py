@@ -39,9 +39,9 @@ class TestContainerPoolBasics:
         assert stats["idle"] == 0
         assert stats["total_workers"] == 0
 
-    def test_pool_get_all_ids_empty(self, pool):
-        """get_all_ids should return empty list when no workers"""
-        assert pool.get_all_ids() == []
+    def test_pool_get_all_names_empty(self, pool):
+        """get_all_names should return empty list when no workers"""
+        assert pool.get_all_names() == []
 
 
 class TestContainerPoolAcquire:
@@ -81,7 +81,7 @@ class TestContainerPoolAcquire:
         await pool.acquire(provision_callback)
 
         assert mock_worker in pool._all_workers
-        assert pool.get_all_ids() == ["c1"]
+        assert pool.get_all_names() == ["w1"]
 
     @pytest.mark.asyncio
     async def test_acquire_returns_idle_first(self, pool, mock_worker):
@@ -192,7 +192,7 @@ class TestContainerPoolEvict:
         pool.evict(worker)
 
         assert worker not in pool._all_workers
-        assert pool.get_all_ids() == []
+        assert pool.get_all_names() == []
 
     @pytest.mark.asyncio
     async def test_evict_unlocks_waiting_acquire(self, pool):

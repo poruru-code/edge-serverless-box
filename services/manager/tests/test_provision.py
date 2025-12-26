@@ -142,7 +142,7 @@ class TestHeartbeatEndpoint:
                     "/containers/heartbeat",
                     json={
                         "function_name": "hello-world",
-                        "container_ids": ["c1", "c2", "c3"],
+                        "container_names": ["c1", "c2", "c3"],
                     },
                 )
 
@@ -153,8 +153,8 @@ class TestHeartbeatEndpoint:
         )
 
     @pytest.mark.asyncio
-    async def test_heartbeat_empty_ids(self, mock_manager):
-        """POST /containers/heartbeat should accept empty container_ids"""
+    async def test_heartbeat_empty_names(self, mock_manager):
+        """POST /containers/heartbeat should accept empty container_names"""
         from services.manager.main import app
 
         transport = ASGITransport(app=app)  # type: ignore
@@ -164,7 +164,7 @@ class TestHeartbeatEndpoint:
                     "/containers/heartbeat",
                     json={
                         "function_name": "hello-world",
-                        "container_ids": [],
+                        "container_names": [],
                     },
                 )
 

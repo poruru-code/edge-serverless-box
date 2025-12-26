@@ -136,10 +136,10 @@ class TestPoolManagerAcquireRelease:
             await pool_manager.acquire_worker("test-function")
             pool_manager.evict_worker("test-function", mock_worker)
             pool = await pool_manager.get_pool("test-function")
-            return pool.get_all_ids()
+            return pool.get_all_names()
 
-        ids = asyncio.get_event_loop().run_until_complete(setup())
-        assert "c1" not in ids
+        names = asyncio.get_event_loop().run_until_complete(setup())
+        assert "w1" not in names
 
 
 class TestPoolManagerHeartbeat:
@@ -181,21 +181,23 @@ class TestPoolManagerHeartbeat:
         )
 
     @pytest.mark.asyncio
-    async def test_get_all_worker_ids_empty(self, pool_manager):
-        """get_all_worker_ids should return empty dict initially"""
-        ids = pool_manager.get_all_worker_ids()
-        assert ids == {}
+    async def test_get_all_worker_names_empty(self, pool_manager):
+        """get_all_worker_names should return empty dict initially"""
+        names = pool_manager.get_all_worker_names()
+        assert names == {}
 
     @pytest.mark.asyncio
-    async def test_get_all_worker_ids_with_workers(self, pool_manager):
-        """get_all_worker_ids should return all worker IDs per function"""
+    async def test_get_all_worker_names_with_workers(self, pool_manager):
+        """get_all_worker_names should return all worker Names per function"""
         # Acquire workers for two functions
         await pool_manager.acquire_worker("function-a")
         await pool_manager.acquire_worker("function-b")
 
-        ids = pool_manager.get_all_worker_ids()
+        names = pool_manager.get_all_worker_names()
 
-        assert "function-a" in ids
-        assert "function-b" in ids
-        assert len(ids["function-a"]) == 1
-        assert len(ids["function-b"]) == 1
+        assert "function-a" in names
+        assert "function-b" in names
+        assert len(names["function-a"]) == 1
+        assert len(names["function-b"]) == 1
+        assert "w1" in names["function-a"]
+        assert "w2" in names["function-b"]

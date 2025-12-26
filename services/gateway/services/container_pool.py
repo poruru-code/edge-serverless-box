@@ -105,9 +105,9 @@ class ContainerPool:
         self._all_workers.discard(worker)
         self._sem.release()  # 枠解放 → Queue空なので新規作成へ
 
-    def get_all_ids(self) -> List[str]:
-        """Heartbeat用: Busy も Idle もすべて含む ID リスト"""
-        return [w.id for w in self._all_workers]
+    def get_all_names(self) -> List[str]:
+        """Heartbeat用: Busy も Idle もすべて含む Name リスト"""
+        return [w.name for w in self._all_workers]
 
     @property
     def stats(self) -> dict:

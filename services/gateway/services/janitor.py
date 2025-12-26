@@ -61,8 +61,8 @@ class HeartbeatJanitor:
 
     async def _send_heartbeat(self) -> None:
         """Heartbeat 送信"""
-        worker_ids = self.pool_manager.get_all_worker_ids()
-        for function_name, ids in worker_ids.items():
-            if ids:  # Only send if there are workers
-                await self.manager_client.heartbeat(function_name, ids)
-                logger.debug(f"Heartbeat sent: {function_name} ({len(ids)} workers)")
+        worker_names = self.pool_manager.get_all_worker_names()
+        for function_name, names in worker_names.items():
+            if names:  # Only send if there are workers
+                await self.manager_client.heartbeat(function_name, names)
+                logger.debug(f"Heartbeat sent: {function_name} ({len(names)} workers)")
