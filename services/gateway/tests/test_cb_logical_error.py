@@ -25,10 +25,15 @@ async def test_circuit_breaker_on_rie_200_error_FINAL():
     registry = MagicMock()  # It's used synchronously in LambdaInvoker
     registry.get_function_config.return_value = {"image": "test", "environment": {}}
 
-    container_manager = AsyncMock()
-    container_manager.get_lambda_host.return_value = "localhost"
+    from services.common.models.internal import WorkerInfo
 
-    invoker = LambdaInvoker(mock_client, registry, container_manager, config)
+    backend = AsyncMock()
+    mock_worker = WorkerInfo(id="w1", name="w1", ip_address="localhost")
+    backend.acquire_worker.return_value = mock_worker
+    backend.release_worker = AsyncMock()
+    backend.evict_worker = AsyncMock()
+
+    invoker = LambdaInvoker(mock_client, registry, config, backend)
 
     # RIE がよく返す「200 だけどエラー」のレスポンス
     error_body = {

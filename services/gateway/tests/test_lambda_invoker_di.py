@@ -10,16 +10,14 @@ async def test_lambda_invoker_di_initialization():
     """Test LambdaInvoker can be initialized with dependencies"""
     client = AsyncMock()
     registry = MagicMock(spec=FunctionRegistry)
-    container_manager = AsyncMock()  # Protocol mock
+    backend = AsyncMock()  # Protocol mock
     config = GatewayConfig()
 
-    invoker = LambdaInvoker(
-        client=client, registry=registry, container_manager=container_manager, config=config
-    )
+    invoker = LambdaInvoker(client=client, registry=registry, config=config, backend=backend)
 
     assert invoker.client == client
     assert invoker.registry == registry
-    assert invoker.container_manager == container_manager
+    assert invoker.backend == backend
     assert invoker.config == config
 
 
@@ -29,11 +27,11 @@ async def test_lambda_invoker_invoke_flow():
     # Arrange
     client = AsyncMock()
     registry = MagicMock(spec=FunctionRegistry)
-    container_manager = AsyncMock()
+    backend = AsyncMock()
     config = GatewayConfig()
     config.GATEWAY_INTERNAL_URL = "http://gateway-internal"
 
-    invoker = LambdaInvoker(client, registry, container_manager, config)
+    invoker = LambdaInvoker(client, registry, config, backend)
 
     function_name = "test-func"
     payload = b"{}"
@@ -44,8 +42,10 @@ async def test_lambda_invoker_invoke_flow():
         "environment": {"VAR": "VAL"},
     }
 
-    # Mock Container Manager
-    container_manager.get_lambda_host.return_value = "10.0.0.5"
+    # Mock Backend
+    mock_worker = MagicMock()
+    mock_worker.ip_address = "10.0.0.5"
+    backend.acquire_worker.return_value = mock_worker
 
     # Mock HTTP Client - return valid JSON response (not an error)
     mock_response = MagicMock()
@@ -62,16 +62,9 @@ async def test_lambda_invoker_invoke_flow():
     # 1. Registry called
     registry.get_function_config.assert_called_with(function_name)
 
-    # 2. Container Manager called with correct args
-    container_manager.get_lambda_host.assert_called_once()
-    args, kwargs = container_manager.get_lambda_host.call_args
-    # get_lambda_host(function_name, image, env)
-    assert kwargs.get("function_name") == function_name or args[0] == function_name
-
-    # Verify environment extension
-    called_env = kwargs.get("env") or args[2]
-    assert called_env["VAR"] == "VAL"
-    assert called_env["GATEWAY_INTERNAL_URL"] == "http://gateway-internal"
+    # 2. Backend called with correct args
+    backend.acquire_worker.assert_called_once_with(function_name)
+    backend.release_worker.assert_called_once_with(function_name, mock_worker)
 
     # 3. HTTP Client called
     expected_url = f"http://10.0.0.5:{config.LAMBDA_PORT}/2015-03-31/functions/function/invocations"
@@ -87,14 +80,16 @@ async def test_lambda_invoker_logging_on_error():
 
     client = AsyncMock()
     registry = MagicMock(spec=FunctionRegistry)
-    container_manager = AsyncMock()
+    backend = AsyncMock()
     config = GatewayConfig()
 
-    invoker = LambdaInvoker(client, registry, container_manager, config)
+    invoker = LambdaInvoker(client, registry, config, backend)
 
     # Setup mocks
     registry.get_function_config.return_value = {"image": "img", "environment": {}}
-    container_manager.get_lambda_host.return_value = "host"
+    mock_worker = MagicMock()
+    mock_worker.ip_address = "host"
+    backend.acquire_worker.return_value = mock_worker
     client.post.side_effect = httpx.RequestError("Connection failed")
 
     with patch("services.gateway.services.lambda_invoker.logger") as mock_logger:

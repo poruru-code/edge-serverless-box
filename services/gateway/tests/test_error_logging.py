@@ -18,7 +18,6 @@ from services.gateway.api.deps import (
 from services.gateway.models import TargetFunction
 from services.gateway.services.lambda_invoker import LambdaInvoker
 from services.gateway.services.function_registry import FunctionRegistry
-from services.gateway.services.container_manager import ContainerManagerProtocol
 from services.gateway.config import GatewayConfig
 
 
@@ -93,12 +92,15 @@ async def test_lambda_connection_error_logged_at_error_level(caplog):
     mock_registry = MagicMock(spec=FunctionRegistry)
     mock_registry.get_function_config.return_value = {"image": "test-image", "environment": {}}
 
-    mock_container_manager = AsyncMock(spec=ContainerManagerProtocol)
-    mock_container_manager.get_lambda_host.return_value = "1.2.3.4"
+    # Backend Mock
+    mock_backend = AsyncMock()
+    mock_worker = MagicMock()
+    mock_worker.ip_address = "1.2.3.4"
+    mock_backend.acquire_worker.return_value = mock_worker
 
     config = GatewayConfig()
 
-    invoker = LambdaInvoker(mock_client, mock_registry, mock_container_manager, config)
+    invoker = LambdaInvoker(mock_client, mock_registry, config, mock_backend)
 
     app.dependency_overrides[get_http_client] = lambda: mock_client
     app.dependency_overrides[get_orchestrator_client] = lambda: mock_manager
@@ -155,12 +157,13 @@ async def test_lambda_connection_error_includes_detailed_info(caplog):
     mock_registry = MagicMock(spec=FunctionRegistry)
     mock_registry.get_function_config.return_value = {"image": "test-image", "environment": {}}
 
-    # Custom container manager to verify host resolution in logs (if logged)
-    # Actually LambdaInvoker logs target_url which contains host.
-    mock_container_manager = AsyncMock(spec=ContainerManagerProtocol)
-    mock_container_manager.get_lambda_host.return_value = "192.168.1.100"
+    # Backend Mock
+    mock_backend = AsyncMock()
+    mock_worker = MagicMock()
+    mock_worker.ip_address = "192.168.1.100"
+    mock_backend.acquire_worker.return_value = mock_worker
 
-    invoker = LambdaInvoker(mock_client, mock_registry, mock_container_manager, config)
+    invoker = LambdaInvoker(mock_client, mock_registry, config, mock_backend)
 
     app.dependency_overrides[get_http_client] = lambda: mock_client
     app.dependency_overrides[get_orchestrator_client] = lambda: mock_manager

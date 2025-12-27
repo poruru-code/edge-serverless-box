@@ -5,7 +5,6 @@ TDD: RED phase - write tests first, then implement.
 """
 
 import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 
@@ -122,23 +121,19 @@ class TestPoolManagerAcquireRelease:
         await pool_manager.acquire_worker("test-function")
 
         # Then release
-        pool_manager.release_worker("test-function", mock_worker)
+        await pool_manager.release_worker("test-function", mock_worker)
 
         pool = await pool_manager.get_pool("test-function")
         assert pool.stats["idle"] == 1
 
-    def test_evict_worker(self, pool_manager, mock_worker):
+    @pytest.mark.asyncio
+    async def test_evict_worker(self, pool_manager, mock_worker):
         """evict_worker should remove worker from pool tracking"""
-        from services.gateway.services.pool_manager import PoolManager
-
         # Manually setup pool with worker
-        async def setup():
-            await pool_manager.acquire_worker("test-function")
-            pool_manager.evict_worker("test-function", mock_worker)
-            pool = await pool_manager.get_pool("test-function")
-            return pool.get_all_names()
-
-        names = asyncio.get_event_loop().run_until_complete(setup())
+        await pool_manager.acquire_worker("test-function")
+        await pool_manager.evict_worker("test-function", mock_worker)
+        pool = await pool_manager.get_pool("test-function")
+        names = pool.get_all_names()
         assert "w1" not in names
 
 

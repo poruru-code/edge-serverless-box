@@ -27,6 +27,7 @@ from .core.event_builder import V1ProxyEventBuilder
 from .services.function_registry import FunctionRegistry
 from .services.route_matcher import RouteMatcher
 from .services.lambda_invoker import LambdaInvoker
+from .services.legacy_adapter import LegacyBackendAdapter
 
 from .api.deps import (
     UserIdDep,
@@ -205,13 +206,19 @@ async def lifespan(app: FastAPI):
             f"Auto-Scaling enabled: PoolManager + HeartbeatJanitor (interval: {config.HEARTBEAT_INTERVAL}s, idle: {config.GATEWAY_IDLE_TIMEOUT_SECONDS}s)"
         )
 
-    # Create LambdaInvoker with optional pool_manager
+    # Strategy Pattern: Select backend
+    if pool_manager:
+        backend = pool_manager
+    else:
+        # Fallback to Legacy Mode via adapter
+        backend = LegacyBackendAdapter(container_manager, config, function_registry)
+
+    # Create LambdaInvoker with strategy backend
     lambda_invoker = LambdaInvoker(
         client=client,
         registry=function_registry,
-        container_manager=container_manager,
         config=config,
-        pool_manager=pool_manager,  # None if feature flag disabled
+        backend=backend,
     )
     orchestrator_client = OrchestratorClient(client)
 

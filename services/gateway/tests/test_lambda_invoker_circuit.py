@@ -6,6 +6,7 @@ from services.gateway.services.lambda_invoker import LambdaInvoker
 from services.gateway.services.function_registry import FunctionRegistry
 from services.gateway.config import GatewayConfig
 from services.gateway.core.exceptions import LambdaExecutionError
+from services.common.models.internal import WorkerInfo
 
 
 @pytest.fixture
@@ -16,19 +17,21 @@ def mock_registry():
 
 
 @pytest.fixture
-def mock_container_manager():
-    cm = AsyncMock()
+def mock_backend():
+    backend = AsyncMock()
 
     # function_name に応じて異なるホストを返すように設定
     async def side_effect(function_name, **kwargs):
         if function_name == "func-1":
-            return "10.0.0.1"
+            return WorkerInfo(id="c1", name="w1", ip_address="10.0.0.1")
         if function_name == "func-2":
-            return "10.0.0.2"
-        return "10.0.0.1"
+            return WorkerInfo(id="c2", name="w2", ip_address="10.0.0.2")
+        return WorkerInfo(id="c1", name="w1", ip_address="10.0.0.1")
 
-    cm.get_lambda_host.side_effect = side_effect
-    return cm
+    backend.acquire_worker.side_effect = side_effect
+    backend.release_worker = AsyncMock()
+    backend.evict_worker = AsyncMock()
+    return backend
 
 
 @pytest.fixture
@@ -38,14 +41,14 @@ def gateway_config():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_invoker_circuit_breaker_opens(mock_registry, mock_container_manager, gateway_config):
+async def test_invoker_circuit_breaker_opens(mock_registry, mock_backend, gateway_config):
     """Invokerが失敗を検知して回路を遮断することを確認"""
     async with httpx.AsyncClient() as client:
         invoker = LambdaInvoker(
             client=client,
             registry=mock_registry,
-            container_manager=mock_container_manager,
             config=gateway_config,
+            backend=mock_backend,
         )
 
         function_name = "test-function"
@@ -69,14 +72,14 @@ async def test_invoker_circuit_breaker_opens(mock_registry, mock_container_manag
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_invoker_per_function_breaker(mock_registry, mock_container_manager, gateway_config):
+async def test_invoker_per_function_breaker(mock_registry, mock_backend, gateway_config):
     """関数ごとに独立したブレーカーが機能することを確認"""
     async with httpx.AsyncClient() as client:
         invoker = LambdaInvoker(
             client=client,
             registry=mock_registry,
-            container_manager=mock_container_manager,
             config=gateway_config,
+            backend=mock_backend,
         )
 
         f1 = "func-1"

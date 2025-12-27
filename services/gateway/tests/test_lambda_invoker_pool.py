@@ -5,7 +5,7 @@ TDD: Tests for pool-based invocation with self-healing.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import httpx
 
 
@@ -44,8 +44,8 @@ class TestLambdaInvokerPoolMode:
 
         pm = MagicMock()
         pm.acquire_worker = AsyncMock(return_value=worker)
-        pm.release_worker = MagicMock()
-        pm.evict_worker = MagicMock()
+        pm.release_worker = AsyncMock()
+        pm.evict_worker = AsyncMock()
         return pm
 
     @pytest.fixture
@@ -82,9 +82,8 @@ class TestLambdaInvokerPoolMode:
         invoker = LambdaInvoker(
             client=mock_http_client,
             registry=mock_registry,
-            container_manager=mock_container_manager,
             config=mock_config,
-            pool_manager=mock_pool_manager,  # Pool mode
+            backend=mock_pool_manager,  # Pool mode
         )
 
         await invoker.invoke_function("hello-world", b'{"test": 1}')
@@ -112,9 +111,8 @@ class TestLambdaInvokerPoolMode:
         invoker = LambdaInvoker(
             client=mock_http_client,
             registry=mock_registry,
-            container_manager=mock_container_manager,
             config=mock_config,
-            pool_manager=mock_pool_manager,
+            backend=mock_pool_manager,
         )
 
         await invoker.invoke_function("hello-world", b'{}')
@@ -141,9 +139,8 @@ class TestLambdaInvokerPoolMode:
         invoker = LambdaInvoker(
             client=mock_http_client,
             registry=mock_registry,
-            container_manager=mock_container_manager,
             config=mock_config,
-            pool_manager=mock_pool_manager,
+            backend=mock_pool_manager,
         )
 
         with pytest.raises(Exception):  # LambdaExecutionError or ConnectError
@@ -163,13 +160,15 @@ class TestLambdaInvokerPoolMode:
     ):
         """When pool_manager is None, use legacy container_manager"""
         from services.gateway.services.lambda_invoker import LambdaInvoker
+        from services.gateway.services.legacy_adapter import LegacyBackendAdapter
+
+        backend = LegacyBackendAdapter(mock_container_manager, mock_config, mock_registry)
 
         invoker = LambdaInvoker(
             client=mock_http_client,
             registry=mock_registry,
-            container_manager=mock_container_manager,
             config=mock_config,
-            pool_manager=None,  # Legacy mode
+            backend=backend,  # Legacy mode via adapter
         )
 
         await invoker.invoke_function("hello-world", b'{}')

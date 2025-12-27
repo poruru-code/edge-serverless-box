@@ -6,7 +6,7 @@ TDD: RED phase - write tests first, then implement.
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 
 class TestContainerPoolBasics:
@@ -86,10 +86,9 @@ class TestContainerPoolAcquire:
     @pytest.mark.asyncio
     async def test_acquire_returns_idle_first(self, pool, mock_worker):
         """acquire() should return idle worker without provisioning"""
-        from services.common.models.internal import WorkerInfo
 
         # Pre-populate idle queue
-        pool._idle_workers.put_nowait(mock_worker)
+        pool._idle_workers.append(mock_worker)
         pool._all_workers.add(mock_worker)
 
         provision_callback = AsyncMock()
@@ -108,9 +107,9 @@ class TestContainerPoolAcquire:
         # Fill up capacity (simulate 2 workers acquired)
         pool._all_workers.add(mock_worker)
         pool._all_workers.add(WorkerInfo(id="c2", name="w2", ip_address="10.0.0.2"))
-        # Acquire semaphore slots
-        await pool._sem.acquire()
-        await pool._sem.acquire()
+        
+        # In Condition-based pool, fill _all_workers is enough to prevent new provision
+        # but to prevent acquire from returning, we don't put them in _idle_workers.
 
         provision_callback = AsyncMock()
 
@@ -134,15 +133,14 @@ class TestContainerPoolRelease:
 
         worker = WorkerInfo(id="c1", name="w1", ip_address="10.0.0.1")
 
-        # Simulate acquire (take semaphore slot)
+        # Simulate acquire (add to all_workers)
         pool._all_workers.add(worker)
-        await pool._sem.acquire()
 
         # Release
-        pool.release(worker)
+        await pool.release(worker)
 
         # Should be in idle queue
-        assert pool._idle_workers.qsize() == 1
+        assert len(pool._idle_workers) == 1
         assert pool.stats["idle"] == 1
 
     @pytest.mark.asyncio
@@ -154,8 +152,7 @@ class TestContainerPoolRelease:
 
         # Fill capacity
         pool._all_workers.add(worker)
-        await pool._sem.acquire()
-        await pool._sem.acquire()
+        pool._all_workers.add(WorkerInfo(id="c2", name="w2", ip_address="10.0.0.2"))
 
         # Start waiting acquire
         async def wait_and_acquire():
@@ -167,7 +164,7 @@ class TestContainerPoolRelease:
         await asyncio.sleep(0.1)
 
         # Release should unblock
-        pool.release(worker)
+        await pool.release(worker)
 
         result = await asyncio.wait_for(acquire_task, timeout=1.0)
         assert result.id == "c1"
@@ -182,14 +179,15 @@ class TestContainerPoolEvict:
 
         return ContainerPool(function_name="test-function", max_capacity=2)
 
-    def test_evict_removes_from_all_workers(self, pool):
+    @pytest.mark.asyncio
+    async def test_evict_removes_from_all_workers(self, pool):
         """evict() should remove worker from _all_workers"""
         from services.common.models.internal import WorkerInfo
 
         worker = WorkerInfo(id="c1", name="w1", ip_address="10.0.0.1")
         pool._all_workers.add(worker)
 
-        pool.evict(worker)
+        await pool.evict(worker)
 
         assert worker not in pool._all_workers
         assert pool.get_all_names() == []
@@ -203,9 +201,7 @@ class TestContainerPoolEvict:
         new_worker = WorkerInfo(id="c_new", name="new", ip_address="10.0.0.100")
 
         pool._all_workers.add(dead_worker)
-        # Fill capacity
-        await pool._sem.acquire()
-        await pool._sem.acquire()
+        pool._all_workers.add(WorkerInfo(id="c2", name="w2", ip_address="10.0.0.2"))
 
         # Start waiting acquire
         provision_callback = AsyncMock(return_value=[new_worker])
@@ -219,7 +215,7 @@ class TestContainerPoolEvict:
         await asyncio.sleep(0.1)
 
         # Evict should unblock and trigger provision
-        pool.evict(dead_worker)
+        await pool.evict(dead_worker)
 
         result = await asyncio.wait_for(acquire_task, timeout=1.0)
         assert result.id == "c_new"

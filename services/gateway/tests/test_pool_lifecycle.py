@@ -34,8 +34,8 @@ class TestContainerPoolLifecycle:
         # Simulate usage time
         await asyncio.sleep(0.1)
 
-        # 2. Release
-        pool.release(worker)
+        # 2. Release (Now a coroutine)
+        await pool.release(worker)
 
         # Verify timestamp updated
         assert worker.last_used_at > initial_time
@@ -48,7 +48,8 @@ class TestContainerPoolLifecycle:
         """
         worker = WorkerInfo(id="w2", name="w2", ip_address="2.2.2.2", last_used_at=0.0)
 
-        pool.adopt(worker)
+        # adopt() is now a coroutine
+        await pool.adopt(worker)
 
         assert worker.last_used_at > 0.0
         assert worker.last_used_at >= time.time() - 0.5
@@ -64,20 +65,17 @@ class TestContainerPoolLifecycle:
 
         # Add to idle queue directly for testing state
         pool._all_workers.add(old_worker)
-        pool._idle_workers.put_nowait(old_worker)
-        # Release semaphore to match (although prune doesn't check sem)
-        pool._sem.release()
+        pool._idle_workers.append(old_worker)  # deque uses append, not put_nowait
 
         # Add a worker that is "new"
         new_worker = WorkerInfo(id="w_new", name="w_new", ip_address="2.2.2.2")
         new_worker.last_used_at = time.time()  # Now
 
         pool._all_workers.add(new_worker)
-        pool._idle_workers.put_nowait(new_worker)
-        pool._sem.release()
+        pool._idle_workers.append(new_worker)
 
-        # Prune with 60s timeout
-        pruned = pool.prune_idle_workers(idle_timeout=60.0)
+        # Prune with 60s timeout (Now a coroutine)
+        pruned = await pool.prune_idle_workers(idle_timeout=60.0)
 
         assert old_worker in pruned
         assert new_worker not in pruned

@@ -1,7 +1,7 @@
 """
 Lambda Invoker Service
 
-ManagerClientを通じてコンテナを起動し、Lambda RIEに対してInvokeリクエストを送信します。
+InvocationBackend ストラテジーを通じてワーカーを取得し、Lambda RIEに対してInvokeリクエストを送信します。
 boto3.client('lambda').invoke() 互換のエンドポイント用のビジネスロジック層です。
 """
 
@@ -9,139 +9,93 @@ import logging
 import json
 import base64
 import httpx
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Dict, Optional, Protocol
 from services.common.core.request_context import get_trace_id
 from services.gateway.services.function_registry import FunctionRegistry
-
-if TYPE_CHECKING:
-    from .pool_manager import PoolManager
-
-
-from services.gateway.services.container_manager import ContainerManagerProtocol
 from services.gateway.config import GatewayConfig
 from services.gateway.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from services.gateway.core.exceptions import (
-    FunctionNotFoundError,
     ContainerStartError,
     LambdaExecutionError,
 )
-
+from services.common.models.internal import WorkerInfo
 
 logger = logging.getLogger("gateway.lambda_invoker")
 
+class InvocationBackend(Protocol):
+    """
+    実行バックエンドの抽象インターフェース
+    PoolManager (Python) や将来の AgentClient (Go/gRPC) がこれを実装する
+    """
+    async def acquire_worker(self, function_name: str) -> WorkerInfo:
+        """関数実行用のワーカーを取得"""
+        ...
+
+    async def release_worker(self, function_name: str, worker: WorkerInfo) -> None:
+        """ワーカーを返却"""
+        ...
+
+    async def evict_worker(self, function_name: str, worker: WorkerInfo) -> None:
+        """ワーカーを破棄"""
+        ...
 
 class LambdaInvoker:
     def __init__(
         self,
         client: httpx.AsyncClient,
         registry: FunctionRegistry,
-        container_manager: ContainerManagerProtocol,
         config: GatewayConfig,
-        pool_manager: Optional["PoolManager"] = None,
+        backend: InvocationBackend,
     ):
         """
         Args:
             client: Shared httpx.AsyncClient
             registry: FunctionRegistry instance
-            container_manager: ContainerManagerProtocol instance (legacy mode)
             config: GatewayConfig instance
-            pool_manager: Optional PoolManager for pool-based invocation
+            backend: InvocationBackend implementing Strategy
         """
         self.client = client
         self.registry = registry
-        self.container_manager = container_manager
         self.config = config
-        self.pool_manager = pool_manager
+        self.backend = backend
         # 関数名ごとのブレーカーを保持
         self.breakers: Dict[str, CircuitBreaker] = {}
 
     async def invoke_function(
         self, function_name: str, payload: bytes, timeout: int = 300
     ) -> httpx.Response:
-        """
-        Lambda関数を呼び出す
-
-        Args:
-            function_name: 呼び出す関数名
-            payload: リクエストボディ
-            timeout: リクエストタイムアウト
-
-        Returns:
-            Lambda RIEからのレスポンス
-
-        Raises:
-            ContainerStartError: コンテナ起動失敗
-            LambdaExecutionError: Lambda実行失敗
-        """
-        # config check
+        """指定された名称の Lambda を実行"""
         func_config = self.registry.get_function_config(function_name)
-        if func_config is None:
-            raise FunctionNotFoundError(function_name)
+        if not func_config:
+            raise LambdaExecutionError(function_name, "Function not found in registry")
 
-        # Prepare env
-        env = func_config.get("environment", {}).copy()
-
-        # Resolve Gateway URL using injected config
-        gateway_internal_url = self.config.GATEWAY_INTERNAL_URL
-        env["GATEWAY_INTERNAL_URL"] = gateway_internal_url
-
-        # Inject _HANDLER env var for sitecustomize.py wrapper
-        # This enables auto trace ID hydration via sitecustomize.py
-        env.setdefault("_HANDLER", "lambda_function.lambda_handler")
+        # Circuit Breaker (State management is done inside breaker.call)
+        breaker = self._get_breaker(function_name)
 
         # Trace ID Propagation
         trace_id = get_trace_id()
         logger.debug(f"Trace ID in Invoker: {trace_id}")
-        if trace_id:
-            env["_X_AMZN_TRACE_ID"] = trace_id
 
-        logger.debug(f"Passing env to manager for {function_name}: {env}")
-
-        # === POOL MODE vs LEGACY MODE ===
-        worker = None
-        if self.pool_manager is not None:
-            # Pool Mode: acquire worker from PoolManager
+        worker: Optional[WorkerInfo] = None
+        try:
+            # 1. バックエンドからワーカーを取得 (Strategy Pattern)
             try:
-                worker = await self.pool_manager.acquire_worker(function_name)
+                worker = await self.backend.acquire_worker(function_name)
                 host = worker.ip_address
             except Exception as e:
                 raise ContainerStartError(function_name, e) from e
-        else:
-            # Legacy Mode: use ContainerManager
-            try:
-                host = await self.container_manager.get_lambda_host(
-                    function_name=function_name,
-                    image=func_config.get("image"),
-                    env=env,
-                )
-            except Exception as e:
-                raise ContainerStartError(function_name, e) from e
 
-        # POST to Lambda RIE
-        rie_url = (
-            f"http://{host}:{self.config.LAMBDA_PORT}/2015-03-31/functions/function/invocations"
-        )
-        logger.info(f"Invoking {function_name} at {rie_url} (trace_id: {trace_id})")
+            # 2. POST to Lambda RIE
+            rie_url = f"http://{host}:{self.config.LAMBDA_PORT}/2015-03-31/functions/function/invocations"
+            logger.info(f"Invoking {function_name} at {rie_url} (trace_id: {trace_id})")
 
-        # ブレーカー取得または作成
-        if function_name not in self.breakers:
-            self.breakers[function_name] = CircuitBreaker(
-                failure_threshold=self.config.CIRCUIT_BREAKER_THRESHOLD,
-                recovery_timeout=self.config.CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
-            )
-
-        breaker = self.breakers[function_name]
-
-        try:
-            # ブレーカー経由で実行
+            # 3. ブレーカー経由でリクエスト実行
             async def do_post():
                 headers = {
                     "Content-Type": "application/json",
                 }
                 if trace_id:
-                    # header value should be the full string (Root=...)
                     headers["X-Amzn-Trace-Id"] = trace_id
-
                     # RIE 対策: ClientContext に Trace ID を埋め込む
                     client_context = {"custom": {"trace_id": trace_id}}
                     json_ctx = json.dumps(client_context)
@@ -194,24 +148,54 @@ class LambdaInvoker:
             raise LambdaExecutionError(function_name, "Circuit Breaker Open") from e
         except httpx.ConnectError as e:
             # Self-Healing: Evict dead worker on connection error
-            logger.warning(f"Connection error to worker, evicting: {e}")
-            if worker is not None and self.pool_manager is not None:
-                await self.pool_manager.evict_worker(function_name, worker)
+            logger.error(
+                f"Lambda invocation failed for function '{function_name}': {e}",
+                extra={
+                    "function_name": function_name,
+                    "target_url": rie_url,
+                    "error_type": type(e).__name__,
+                    "error_detail": str(e),
+                },
+            )
+            if worker is not None:
+                await self.backend.evict_worker(function_name, worker)
                 worker = None  # prevent release in finally
             raise LambdaExecutionError(function_name, e) from e
         except (httpx.RequestError, httpx.HTTPStatusError) as e:
-            logger.error(f"Lambda invocation failed for function '{function_name}': {e}")
+            logger.error(
+                f"Lambda invocation failed for function '{function_name}': {e}",
+                extra={
+                    "function_name": function_name,
+                    "target_url": rie_url,
+                    "error_type": type(e).__name__,
+                    "error_detail": str(e),
+                },
+            )
             raise LambdaExecutionError(function_name, e) from e
         except Exception as e:
-            logger.exception(f"Unexpected error during invocation of {function_name}: {e}")
+            logger.exception(
+                f"Unexpected error during invocation of {function_name}: {e}",
+                extra={
+                    "function_name": function_name,
+                    "target_url": rie_url if "rie_url" in locals() else "N/A",
+                    "error_type": type(e).__name__,
+                    "error_detail": str(e),
+                },
+            )
             raise LambdaExecutionError(function_name, e) from e
         finally:
             # 常にプールへ返却 (evict済みの場合は worker=None)
-            if worker is not None and self.pool_manager is not None:
+            if worker is not None:
                 try:
-                    await self.pool_manager.release_worker(function_name, worker)
+                    await self.backend.release_worker(function_name, worker)
                 except Exception as e:
                     logger.error(f"Failed to release worker for {function_name}: {e}")
 
-
-# Backward compatibility or helper if needed? No, we are fully refactoring to DI.
+    def _get_breaker(self, function_name: str) -> CircuitBreaker:
+        """関数ごとのサーキットブレーカーを取得または作成"""
+        if function_name not in self.breakers:
+            self.breakers[function_name] = CircuitBreaker(
+                failure_threshold=self.config.CIRCUIT_BREAKER_THRESHOLD,
+                recovery_timeout=self.config.CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
+            )
+        return self.breakers[function_name]
