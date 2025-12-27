@@ -32,6 +32,9 @@ type ContainerRuntime interface {
 	// Resume un-suspends a previously paused container.
 	Resume(ctx context.Context, id string) error
 
+	// GC performs garbage collection, cleaning up all managed containers and tasks.
+	GC(ctx context.Context) error
+
 	// Close cleans up runtime-wide resources (e.g. connections).
 	Close() error
 }

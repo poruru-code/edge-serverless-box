@@ -157,3 +157,10 @@ func (r *Runtime) Resume(ctx context.Context, id string) error {
 func (r *Runtime) Close() error {
 	return nil
 }
+
+// GC - Docker runtime doesn't require GC as containers are managed by Docker daemon.
+// This is a stub for interface compatibility.
+func (r *Runtime) GC(ctx context.Context) error {
+	// No-op for Docker runtime
+	return nil
+}

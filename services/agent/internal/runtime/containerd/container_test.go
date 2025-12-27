@@ -136,3 +136,96 @@ func TestRuntime_Ensure_NetworkFailure_Rollback(t *testing.T) {
 	mockContainer.AssertExpectations(t)
 	mockTask.AssertExpectations(t)
 }
+
+// Red Test: Pause should load the container and pause the task
+func TestRuntime_Pause_Red(t *testing.T) {
+	mockCli := new(MockClient)
+	mockCNI := new(MockCNI)
+	mockPA := NewPortAllocator(20000, 20100)
+	rt := NewRuntime(mockCli, mockCNI, mockPA, "esb")
+	ctx := context.Background()
+	containerID := "lambda-test-func-1234"
+
+	mockContainer := new(MockContainer)
+	mockTask := new(MockTask)
+
+	// Expect LoadContainer to be called
+	mockCli.On("LoadContainer", mock.Anything, containerID).Return(mockContainer, nil)
+	// Expect Task to be called to get the existing task
+	mockContainer.On("Task", mock.Anything, mock.Anything).Return(mockTask, nil)
+	// Expect Pause on task
+	mockTask.On("Pause", mock.Anything).Return(nil)
+
+	err := rt.Pause(ctx, containerID)
+
+	assert.NoError(t, err)
+	mockCli.AssertExpectations(t)
+	mockContainer.AssertExpectations(t)
+	mockTask.AssertExpectations(t)
+}
+
+// Red Test: Resume should load the container and resume the task
+func TestRuntime_Resume_Red(t *testing.T) {
+	mockCli := new(MockClient)
+	mockCNI := new(MockCNI)
+	mockPA := NewPortAllocator(20000, 20100)
+	rt := NewRuntime(mockCli, mockCNI, mockPA, "esb")
+	ctx := context.Background()
+	containerID := "lambda-test-func-1234"
+
+	mockContainer := new(MockContainer)
+	mockTask := new(MockTask)
+
+	// Expect LoadContainer to be called
+	mockCli.On("LoadContainer", mock.Anything, containerID).Return(mockContainer, nil)
+	// Expect Task to be called to get the existing task
+	mockContainer.On("Task", mock.Anything, mock.Anything).Return(mockTask, nil)
+	// Expect Resume on task
+	mockTask.On("Resume", mock.Anything).Return(nil)
+
+	err := rt.Resume(ctx, containerID)
+
+	assert.NoError(t, err)
+	mockCli.AssertExpectations(t)
+	mockContainer.AssertExpectations(t)
+	mockTask.AssertExpectations(t)
+}
+
+// Red Test: Warm Start - Ensure should detect Paused container and Resume it
+func TestRuntime_Ensure_WarmStart_Paused_Red(t *testing.T) {
+	mockCli := new(MockClient)
+	mockCNI := new(MockCNI)
+	mockPA := NewPortAllocator(20000, 20100)
+	rt := NewRuntime(mockCli, mockCNI, mockPA, "esb")
+	ctx := context.Background()
+	req := runtime.EnsureRequest{
+		FunctionName: "warm-func",
+		Image:        "alpine:latest",
+	}
+
+	// Mock existing container
+	mockContainer := new(MockContainer)
+	mockContainer.On("ID").Return("lambda-warm-func-1234")
+	mockCli.On("Containers", mock.Anything, mock.Anything).Return([]containerd.Container{mockContainer}, nil)
+
+	// Mock task status check
+	mockTask := new(MockTask)
+	mockContainer.On("Task", mock.Anything, mock.Anything).Return(mockTask, nil)
+	mockTask.On("Status", mock.Anything).Return(containerd.Status{Status: containerd.Paused}, nil)
+
+	// Expect Resume to be called (Warm Start)
+	mockTask.On("Resume", mock.Anything).Return(nil)
+
+	// Execute
+	info, err := rt.Ensure(ctx, req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, info)
+	assert.Equal(t, "lambda-warm-func-1234", info.ID)
+	// IP/Port should be retained (how to get them without CNI call?)
+	// For now, we just check the container ID
+	
+	mockCli.AssertExpectations(t)
+	mockContainer.AssertExpectations(t)
+	mockTask.AssertExpectations(t)
+}

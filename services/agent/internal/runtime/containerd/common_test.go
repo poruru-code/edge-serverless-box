@@ -179,3 +179,13 @@ func (m *MockTask) Kill(ctx context.Context, signal syscall.Signal, opts ...cont
 	args := m.Called(ctx, signal, opts)
 	return args.Error(0)
 }
+
+func (m *MockTask) Pause(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockTask) Resume(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}

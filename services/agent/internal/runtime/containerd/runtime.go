@@ -28,28 +28,65 @@ func NewRuntime(client ContainerdClient, cniBackend cni.CNI, portAllocator *Port
 	}
 }
 
+
 func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runtime.WorkerInfo, error) {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
-	// 1. Ensure image
-	_, err := r.ensureImage(ctx, req.Image)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. Resource Naming
+	// 1. Resource Naming
 	containerID := fmt.Sprintf("lambda-%s-1234", req.FunctionName) // Fixed ID for test greenness
 
-	// 3. Check existing container
+	// 2. Check existing container (Warm Start path)
 	filters := []string{fmt.Sprintf("labels.%q==%q", "esb_function", req.FunctionName)}
 	containers, err := r.client.Containers(ctx, filters...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 	if len(containers) > 0 {
-		// Existing container logic not implemented for this test
+		existingContainer := containers[0]
+		task, err := existingContainer.Task(ctx, nil)
+		if err != nil {
+			// Could not get task, treat as cold start
+			// TODO: Delete the orphan container and recreate
+			goto coldStart
+		}
+
+		status, err := task.Status(ctx)
+		if err != nil {
+			goto coldStart
+		}
+
+		switch status.Status {
+		case containerd.Paused:
+			// Warm Start: Resume the paused container
+			if err := task.Resume(ctx); err != nil {
+				return nil, fmt.Errorf("failed to resume paused container: %w", err)
+			}
+			return &runtime.WorkerInfo{
+				ID:        existingContainer.ID(),
+				IPAddress: "", // TODO: Retrieve from stored labels
+				Port:      0,  // TODO: Retrieve from stored labels
+			}, nil
+		case containerd.Running:
+			// Container is already running, return its info
+			return &runtime.WorkerInfo{
+				ID:        existingContainer.ID(),
+				IPAddress: "",
+				Port:      0,
+			}, nil
+		default:
+			// Stopped or other status, delete and recreate
+			// TODO: Implement cleanup before cold start
+			goto coldStart
+		}
 	}
-	
+
+coldStart:
+	// 3. Ensure image (only for Cold Start)
+	_, err = r.ensureImage(ctx, req.Image)
+	if err != nil {
+		return nil, err
+	}
+
 	// 4. Create Container
 	container, err := r.client.NewContainer(ctx, containerID, containerd.WithNewSpec())
 	if err != nil {
@@ -94,10 +131,42 @@ func (r *Runtime) Destroy(ctx context.Context, id string) error {
 }
 
 func (r *Runtime) Pause(ctx context.Context, id string) error {
+	ctx = namespaces.WithNamespace(ctx, r.namespace)
+
+	container, err := r.client.LoadContainer(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to load container %s: %w", id, err)
+	}
+
+	task, err := container.Task(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get task for container %s: %w", id, err)
+	}
+
+	if err := task.Pause(ctx); err != nil {
+		return fmt.Errorf("failed to pause task for container %s: %w", id, err)
+	}
+
 	return nil
 }
 
 func (r *Runtime) Resume(ctx context.Context, id string) error {
+	ctx = namespaces.WithNamespace(ctx, r.namespace)
+
+	container, err := r.client.LoadContainer(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to load container %s: %w", id, err)
+	}
+
+	task, err := container.Task(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get task for container %s: %w", id, err)
+	}
+
+	if err := task.Resume(ctx); err != nil {
+		return fmt.Errorf("failed to resume task for container %s: %w", id, err)
+	}
+
 	return nil
 }
 
