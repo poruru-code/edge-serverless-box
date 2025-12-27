@@ -30,6 +30,7 @@ class GatewayConfig(BaseAppConfig):
     SSL_KEY_PATH: str = Field(default="/app/config/ssl/server.key", description="SSL秘密鍵パス")
     DATA_ROOT_PATH: str = Field(default="/data", description="子コンテナデータのルートパス")
     LOGS_ROOT_PATH: str = Field(default="/logs", description="ログ集約先のルートパス")
+    VICTORIALOGS_URL: str = Field(default="", description="VictoriaLogs ingestion URL")
 
     # 認証・セキュリティ (必須 - 環境変数から設定)
     JWT_SECRET_KEY: str = Field(..., min_length=32, description="JWT署名用シークレットキー")
@@ -73,6 +74,9 @@ class GatewayConfig(BaseAppConfig):
     HEARTBEAT_INTERVAL: int = Field(default=30, description="Heartbeat送信間隔(秒)")
     GATEWAY_IDLE_TIMEOUT_SECONDS: int = Field(
         default=300, description="Gateway側アイドルタイムアウト(秒)"
+    )
+    ORPHAN_GRACE_PERIOD_SECONDS: int = Field(
+        default=60, description="孤児コンテナ削除の猶予時間(秒)"
     )
 
     # Phase 1: Go Agent Settings

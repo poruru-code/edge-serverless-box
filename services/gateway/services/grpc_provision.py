@@ -21,7 +21,35 @@ class GrpcProvisionClient:
         """Provision a container via gRPC Agent and return WorkerInfo list"""
         func_config = self.function_registry.get_function_config(function_name)
         image = func_config.get("image") if func_config else None
+        from services.gateway.config import config
+
+        # Base env from function config
         env = func_config.get("environment", {}) if func_config else {}
+
+        # Inject RIE & Observability Variables
+        env["AWS_LAMBDA_FUNCTION_NAME"] = function_name
+        env["AWS_LAMBDA_FUNCTION_VERSION"] = "$LATEST"
+        env["AWS_REGION"] = env.get("AWS_REGION", "ap-northeast-1")
+
+        if config.VICTORIALOGS_URL:
+            env["VICTORIALOGS_URL"] = config.VICTORIALOGS_URL
+
+        # Inject LOG_LEVEL for sitecustomize.py logging filter
+        import os
+
+        log_level = os.environ.get("LOG_LEVEL", "INFO")
+        env["LOG_LEVEL"] = log_level
+
+        # Inject GATEWAY_INTERNAL_URL for chain invocations
+        if config.GATEWAY_INTERNAL_URL:
+            env["GATEWAY_INTERNAL_URL"] = config.GATEWAY_INTERNAL_URL
+
+        # Inject Timeout & Memory from config
+        if func_config:
+            if "timeout" in func_config:
+                env["AWS_LAMBDA_FUNCTION_TIMEOUT"] = str(func_config["timeout"])
+            if "memory_size" in func_config:
+                env["AWS_LAMBDA_FUNCTION_MEMORY_SIZE"] = str(func_config["memory_size"])
 
         req = agent_pb2.EnsureContainerRequest(
             function_name=function_name,
@@ -45,7 +73,12 @@ class GrpcProvisionClient:
 
             return [worker]
         except Exception as e:
-            logger.error(f"Failed to provision via Agent: {e}")
+            # gRPC RpcError details extraction
+            if hasattr(e, "details"):
+                details = e.details()
+                logger.error(f"Failed to provision via Agent: {e} (Details: {details})")
+            else:
+                logger.error(f"Failed to provision via Agent: {e}")
             raise
 
     async def _wait_for_readiness(
@@ -94,6 +127,7 @@ class GrpcProvisionClient:
                     name=c.container_name,
                     ip_address="",
                     port=8080,
+                    created_at=float(c.created_at),
                     last_used_at=c.last_used_at,
                 )
                 for c in resp.containers

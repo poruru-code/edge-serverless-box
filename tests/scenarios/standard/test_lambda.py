@@ -8,7 +8,6 @@ Lambda 呼び出しテスト (E2E)
 """
 
 import json
-import pytest
 from tests.conftest import (
     AUTH_USER,
     LOG_WAIT_TIMEOUT,
@@ -47,9 +46,7 @@ class TestLambda:
         assert child_body.get("success") is True
         assert child_body.get("message") == "Echo: from-chain"
 
-    @pytest.mark.skip(
-        reason="TODO: VictoriaLogs log propagation timing issue - not Go Agent related"
-    )
+    # VictoriaLogs is now working - unskipped
     def test_async_chain_invoke(self, auth_token):
         """非同期連鎖呼び出し: Client -> Gateway -> Chain (boto3 async) -> Echo"""
         response = call_api(

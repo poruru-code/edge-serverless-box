@@ -13,15 +13,15 @@ from tests.conftest import (
     call_api,
     LOG_WAIT_TIMEOUT,
 )
-import pytest
 
 
 class TestIDSpecs:
     """ID Specification Verification"""
 
-    @pytest.mark.skip(
-        reason="TODO: VictoriaLogs log propagation timing issue - not Go Agent related"
-    )
+    # Unskipped for Phase 4 verification
+    # @pytest.mark.skip(
+    #     reason="TODO: VictoriaLogs log propagation timing issue - not Go Agent related"
+    # )
     def test_id_propagation_with_chain(self, auth_token):
         """
         Verify Trace ID propagation and Request ID independence across a call chain.

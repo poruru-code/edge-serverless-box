@@ -10,6 +10,7 @@ import (
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/oci"
 	"github.com/containerd/go-cni"
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
 )
@@ -48,9 +49,15 @@ func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runti
 		return nil, err
 	}
 
+	// Make env list
+	envList := make([]string, 0, len(req.Env))
+	for k, v := range req.Env {
+		envList = append(envList, fmt.Sprintf("%s=%s", k, v))
+	}
+
 	// 2. Create Container
 	container, err := r.client.NewContainer(ctx, containerID,
-		containerd.WithNewSpec(),
+		containerd.WithNewSpec(oci.WithEnv(envList)),
 		containerd.WithNewSnapshot(containerID, imgObj),
 		containerd.WithContainerLabels(map[string]string{
 			runtime.LabelFunctionName: req.FunctionName,

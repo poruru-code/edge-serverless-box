@@ -161,3 +161,63 @@ class PoolManager:
                     except Exception as e:
                         logger.error(f"Failed to delete pruned container {w.name}: {e}")
         return result
+
+    async def reconcile_orphans(self) -> int:
+        """
+        Gateway管理外のコンテナ（Orphan）を検出し、Agent経由で削除する (Full Reconciliation)
+
+        Grace Period: 作成から ORPHAN_GRACE_PERIOD_SECONDS 以内のコンテナは削除対象外。
+        これにより、作成中〜Readiness Check 中のコンテナが誤削除されるのを防ぐ。
+        """
+        import time
+        from services.gateway.config import config as gateway_config
+
+        grace_period = gateway_config.ORPHAN_GRACE_PERIOD_SECONDS
+        current_time = time.time()
+
+        try:
+            # 1. Agent から現在の全コンテナを取得
+            actual_containers = await self.provision_client.list_containers()
+            if not actual_containers:
+                return 0
+
+            # 2. Gateway が認識している全ワーカーIDを収集
+            known_ids = set()
+            for pool in self._pools.values():
+                workers = pool.get_all_workers()
+                for w in workers:
+                    known_ids.add(w.id)
+
+            # 3. Orphan を検出 (Actual にあるが Known にない)
+            orphans = [c for c in actual_containers if c.id not in known_ids]
+
+            # 4. Orphan を削除 (Grace Period を考慮)
+            removed_count = 0
+            for orphan in orphans:
+                # Grace Period チェック: 作成から grace_period 秒以内のコンテナはスキップ
+                container_age = current_time - orphan.created_at
+                if container_age < grace_period:
+                    logger.debug(
+                        f"Ignoring young container {orphan.id} ({orphan.name}). "
+                        f"Age: {container_age:.1f}s < {grace_period}s grace period"
+                    )
+                    continue
+
+                try:
+                    logger.warning(
+                        f"Found orphan container {orphan.id} ({orphan.name}). "
+                        f"Age: {container_age:.1f}s. Deleting... (Reconciliation)"
+                    )
+                    await self.provision_client.delete_container(orphan.id)
+                    removed_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to delete orphan {orphan.id}: {e}")
+
+            if removed_count > 0:
+                logger.info(f"Reconciliation: Removed {removed_count} orphan containers")
+
+            return removed_count
+
+        except Exception as e:
+            logger.error(f"Reconciliation failed: {e}")
+            return 0

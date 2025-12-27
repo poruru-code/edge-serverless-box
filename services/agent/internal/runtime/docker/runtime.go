@@ -180,6 +180,7 @@ func (r *Runtime) List(ctx context.Context) ([]runtime.ContainerState, error) {
 			Status:        c.State, // "running", "exited", etc.
 			LastUsedAt:    createdTime,
 			ContainerName: name,
+			CreatedAt:     createdTime, // Container creation time from Docker API
 		})
 	}
 	return states, nil

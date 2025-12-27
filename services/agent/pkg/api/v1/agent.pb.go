@@ -510,6 +510,7 @@ type ContainerState struct {
 	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`                              // "RUNNING", "PAUSED", "STOPPED", "UNKNOWN"
 	LastUsedAt    int64                  `protobuf:"varint,4,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"` // Unix Timestamp (秒)
 	ContainerName string                 `protobuf:"bytes,5,opt,name=container_name,json=containerName,proto3" json:"container_name,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // Unix Timestamp (秒) - コンテナ作成時刻
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -577,6 +578,13 @@ func (x *ContainerState) GetContainerName() string {
 		return x.ContainerName
 	}
 	return ""
+}
+
+func (x *ContainerState) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
 }
 
 var File_agent_proto protoreflect.FileDescriptor

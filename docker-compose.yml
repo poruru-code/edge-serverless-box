@@ -136,9 +136,8 @@ services:
       - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-5}
       - CIRCUIT_BREAKER_RECOVERY_TIMEOUT=${CIRCUIT_BREAKER_RECOVERY_TIMEOUT:-30.0}
       - PYTHONUNBUFFERED=1
-      # VictoriaLogs 直接送信設定
-      - VICTORIALOGS_HOST=victorialogs
-      - VICTORIALOGS_PORT=9428
+      # VictoriaLogs 直接送信設定 (Lambda via grpc_provision.py)
+      - VICTORIALOGS_URL=http://victorialogs:9428
       # Auto-Scaling Configuration
       - DEFAULT_MAX_CAPACITY=${DEFAULT_MAX_CAPACITY:-1}
       - DEFAULT_MIN_CAPACITY=${DEFAULT_MIN_CAPACITY:-0}

@@ -139,6 +139,10 @@ def run_scenario(args, scenario):
     esb_template = os.getenv("ESB_TEMPLATE", "tests/fixtures/template.yaml")
     env["ESB_TEMPLATE"] = str(PROJECT_ROOT / esb_template)
 
+    print(f"DEBUG: env_path={env_path}, exists={env_path.exists()}")
+    print(f"DEBUG: EXTERNAL_NETWORK in os.environ: {os.environ.get('EXTERNAL_NETWORK')}")
+    print(f"DEBUG: EXTERNAL_NETWORK in env dict: {env.get('EXTERNAL_NETWORK')}")
+
     separator = ";" if os.name == "nt" else ":"
     base_compose = "docker-compose.dind.yml" if args.dind else "docker-compose.yml"
     compose_files = [base_compose, "tests/docker-compose.test.yml"]

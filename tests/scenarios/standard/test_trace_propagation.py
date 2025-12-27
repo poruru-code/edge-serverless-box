@@ -4,12 +4,12 @@ import time
 import json
 from datetime import datetime, timezone
 from tests.conftest import GATEWAY_URL, VERIFY_SSL, query_victorialogs
-import pytest
 
 
 class TestTrace:
     # Unskipped for Phase 4 verification
-    @pytest.mark.skip(reason="TODO: Go Agent log driver config not implemented")
+    # Unskipped for Phase 4 verification
+    # @pytest.mark.skip(reason="TODO: Go Agent log driver config not implemented")
     def test_chained_trace_consistency(self, auth_token):
         """
         E2E: Client -> Gateway -> Lambda A -> Lambda B で Trace ID が維持されるか

@@ -75,6 +75,13 @@ class HeartbeatJanitor:
         except Exception as e:
             logger.error(f"Pruning failed: {e}")
 
+        # 1.5 Reconciliation (Orphan Cleanup)
+        # Gateway管理外のコンテナがあれば削除する
+        try:
+            await self.pool_manager.reconcile_orphans()
+        except Exception as e:
+            logger.error(f"Reconciliation failed: {e}")
+
         # 2. 残っているワーカーの名前リストを送信 (Manager がいる場合のみ)
         if self.manager_client:
             worker_names = self.pool_manager.get_all_worker_names()

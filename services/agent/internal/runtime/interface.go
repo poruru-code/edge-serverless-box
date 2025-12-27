@@ -27,6 +27,7 @@ type ContainerState struct {
 	Status        string    // "RUNNING", "PAUSED", "STOPPED", "UNKNOWN"
 	LastUsedAt    time.Time // Last time this container was used
 	ContainerName string    // Actual docker/containerd name
+	CreatedAt     time.Time // Container creation time - used for grace period in Reconciliation
 }
 
 // ContainerRuntime defines the interface for interacting with container backends.

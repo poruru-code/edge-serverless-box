@@ -21,15 +21,12 @@ from tests.conftest import (
     request_with_retry,
     call_api,
 )
-import pytest
 
 
 class TestResilience:
     """耐障害性・パフォーマンス機能の検証"""
 
-    @pytest.mark.skip(
-        reason="TODO: Go Agent mode support - agent restart recovery not yet implemented"
-    )
+    # Unskipped - Go Agent restart recovery should work
     def test_orchestrator_restart_recovery(self, auth_token):
         """
         E2E: Manager/Agent再起動時のコンテナ復元検証 (Adopt & Sync)

@@ -97,6 +97,7 @@ func (s *AgentServer) ListContainers(ctx context.Context, req *pb.ListContainers
 			Status:        s.Status,
 			LastUsedAt:    s.LastUsedAt.Unix(),
 			ContainerName: s.ContainerName,
+			CreatedAt:     s.CreatedAt.Unix(),
 		})
 	}
 

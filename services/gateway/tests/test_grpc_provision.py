@@ -23,32 +23,62 @@ def mock_registry():
     return registry
 
 
-@pytest.mark.asyncio
-async def test_grpc_provision_success(mock_stub, mock_registry):
-    """provision(function_name) が成功し WorkerInfo を返すことを確認"""
-    # Import inside to avoid dependency issues during RED step
+@pytest.fixture
+def grpc_client(mock_stub, mock_registry):
     from services.gateway.services.grpc_provision import GrpcProvisionClient
 
-    mock_stub.EnsureContainer = AsyncMock()
-    mock_stub.EnsureContainer.return_value = agent_pb2.WorkerInfo(
-        id="cnt-1", name="lambda-test-1", ip_address="10.0.0.10", port=8080
+    return GrpcProvisionClient(mock_stub, mock_registry)
+
+
+@pytest.mark.asyncio
+async def test_provision_success(grpc_client, mock_stub, mock_registry):
+    """Test successful provision with env var injection"""
+    # 1. Setup mock
+    mock_registry.get_function_config.return_value = {
+        "image": "my-func:latest",
+        "environment": {"USER_VAR": "val"},
+        "memory_size": 256,
+        "timeout": 60,
+    }
+
+    mock_response = agent_pb2.WorkerInfo(
+        id="worker-1",
+        name="worker-1",
+        ip_address="127.0.0.1",
+        port=8080,
     )
+    mock_stub.EnsureContainer = AsyncMock(return_value=mock_response)
 
-    client = GrpcProvisionClient(mock_stub, mock_registry)
-    with patch.object(client, "_wait_for_readiness", new_callable=AsyncMock) as mock_ready:
-        workers = await client.provision("test-func")
-        mock_ready.assert_called_once_with("test-func", "10.0.0.10", 8080)
+    # Mock config.VICTORIALOGS_URL (config object)
+    with (
+        patch("services.gateway.config.config") as mock_config,
+        patch.object(grpc_client, "_wait_for_readiness", new_callable=AsyncMock),
+    ):
+        mock_config.VICTORIALOGS_URL = "http://victorialogs:8428"
 
-    assert len(workers) == 1
-    assert workers[0].id == "cnt-1"
-    assert workers[0].ip_address == "10.0.0.10"
+        # 2. Call
+        workers = await grpc_client.provision("my-func")
 
-    # Verify Agent call
-    mock_stub.EnsureContainer.assert_called_once()
-    args = mock_stub.EnsureContainer.call_args[0][0]
-    assert args.function_name == "test-func"
-    assert args.image == "test-image:latest"
-    assert args.env["KEY"] == "VALUE"
+        # 3. Verify
+        assert len(workers) == 1
+        assert workers[0].id == "worker-1"
+
+        # Verify arguments passed to EnsureContainer
+        args, _ = mock_stub.EnsureContainer.call_args
+        request = args[0]
+
+        assert request.function_name == "my-func"
+        assert request.image == "my-func:latest"
+
+        # Check Env injection
+        env = request.env
+        assert env["USER_VAR"] == "val"
+        assert env["AWS_LAMBDA_FUNCTION_NAME"] == "my-func"
+        assert env["AWS_LAMBDA_FUNCTION_MEMORY_SIZE"] == "256"
+        assert env["AWS_LAMBDA_FUNCTION_TIMEOUT"] == "60"
+        assert env["AWS_LAMBDA_FUNCTION_VERSION"] == "$LATEST"
+        assert env["AWS_REGION"] == "ap-northeast-1"
+        assert env["VICTORIALOGS_URL"] == "http://victorialogs:8428"
 
 
 @pytest.mark.asyncio
