@@ -78,6 +78,11 @@ func (r *DockerRuntime) EnsureContainer(ctx context.Context, functionName string
 				return nil, fmt.Errorf("failed to start existing container: %w", err)
 			}
 		}
+
+		// Ensure network connection (might be already connected, so we ignore error if it's already in the network)
+		// But it's safer to call it and handle specific "already connected" error if needed, 
+		// however docker usually just returns success or a specific error we can check.
+		_ = r.client.NetworkConnect(ctx, r.networkID, containerID, &network.EndpointSettings{})
 	} else {
 		// Create new container
 		if image == "" {

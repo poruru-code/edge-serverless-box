@@ -54,14 +54,17 @@ class GrpcBackend:
 
     def _handle_grpc_error(self, e: grpc.RpcError, function_name: str):
         code = e.code()
+        # gRPC aio errors often have a .details() method
+        details = getattr(e, "details", lambda: str(e))()
+
         if code == grpc.StatusCode.UNAVAILABLE:
-            raise OrchestratorUnreachableError(e)
+            raise OrchestratorUnreachableError(f"Agent unavailable: {details}")
         elif code == grpc.StatusCode.DEADLINE_EXCEEDED:
-            raise OrchestratorTimeoutError(str(e))
+            raise OrchestratorTimeoutError(f"Agent request timed out: {details}")
         elif code == grpc.StatusCode.RESOURCE_EXHAUSTED:
-            raise ContainerStartError(function_name, e)
+            raise ContainerStartError(function_name, f"Agent resource exhausted: {details}")
         else:
-            logger.error(f"Unexpected gRPC error: {e}")
+            logger.error(f"Unexpected gRPC error: {code} - {details}")
             raise e
 
     async def close(self):

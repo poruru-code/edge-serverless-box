@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"testing"
 
@@ -121,7 +122,49 @@ func TestDockerRuntime_EnsureContainer_Exists(t *testing.T) {
 		},
 	}, nil)
 
-	// 2. Inspect
+	// 2. Network Connect: Success
+	mockClient.On("NetworkConnect", ctx, "edge-serverless-box_default", "existing-id", mock.Anything).Return(nil)
+
+	// 3. Inspect
+	mockClient.On("ContainerInspect", ctx, "existing-id").Return(types.ContainerJSON{
+		NetworkSettings: &types.NetworkSettings{
+			Networks: map[string]*network.EndpointSettings{
+				"edge-serverless-box_default": {IPAddress: "10.0.0.3"},
+			},
+		},
+	}, nil)
+
+	// Execute
+	info, err := rt.EnsureContainer(ctx, fnName, "", nil)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "existing-id", info.ID)
+	assert.Equal(t, "10.0.0.3", info.IPAddress)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestDockerRuntime_EnsureContainer_Exists_NetworkError(t *testing.T) {
+	mockClient := new(MockDockerClient)
+	rt := runtime.NewDockerRuntime(mockClient, "edge-serverless-box_default")
+
+	ctx := context.Background()
+	fnName := "existing-func"
+
+	// 1. List: Found
+	mockClient.On("ContainerList", ctx, mock.Anything).Return([]types.Container{
+		{
+			ID:     "existing-id",
+			Names:  []string{"/lambda-existing-func-1234"},
+			Labels: map[string]string{"esb_function": fnName},
+			State:  "running",
+		},
+	}, nil)
+
+	// 2. Network Connect (simulate error, e.g., already connected)
+	mockClient.On("NetworkConnect", ctx, "edge-serverless-box_default", "existing-id", mock.Anything).Return(fmt.Errorf("already connected"))
+
+	// 3. Inspect
 	mockClient.On("ContainerInspect", ctx, "existing-id").Return(types.ContainerJSON{
 		NetworkSettings: &types.NetworkSettings{
 			Networks: map[string]*network.EndpointSettings{
