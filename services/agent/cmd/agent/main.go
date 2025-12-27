@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/poruru/edge-serverless-box/services/agent/internal/api"
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
+	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime/docker"
 	pb "github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -53,7 +54,8 @@ func main() {
 	log.Printf("Connected to Docker (Version: %s)", info.ServerVersion)
 
 	// Initialize Runtime
-	rt := runtime.NewDockerRuntime(dockerCli, networkID)
+	var rt runtime.ContainerRuntime = docker.NewRuntime(dockerCli, networkID)
+	defer rt.Close()
 
 	// Initialize gRPC Server
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))

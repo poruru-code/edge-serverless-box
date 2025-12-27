@@ -9,19 +9,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ContainerRuntime defines the interface for underlying container operations.
-// This decouples the gRPC layer from the specific runtime implementation (Docker, containerd).
-type ContainerRuntime interface {
-	EnsureContainer(ctx context.Context, functionName string, image string, env map[string]string) (*runtime.WorkerInfo, error)
-	DestroyContainer(ctx context.Context, containerID string) error
-}
-
 type AgentServer struct {
 	pb.UnimplementedAgentServiceServer
-	runtime ContainerRuntime
+	runtime runtime.ContainerRuntime
 }
 
-func NewAgentServer(rt ContainerRuntime) *AgentServer {
+func NewAgentServer(rt runtime.ContainerRuntime) *AgentServer {
 	return &AgentServer{
 		runtime: rt,
 	}
@@ -32,16 +25,19 @@ func (s *AgentServer) EnsureContainer(ctx context.Context, req *pb.EnsureContain
 		return nil, status.Error(codes.InvalidArgument, "function_name is required")
 	}
 
-	info, err := s.runtime.EnsureContainer(ctx, req.FunctionName, req.Image, req.Env)
+	info, err := s.runtime.Ensure(ctx, runtime.EnsureRequest{
+		FunctionName: req.FunctionName,
+		Image:        req.Image,
+		Env:          req.Env,
+	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to ensure container: %v", err)
 	}
 
 	return &pb.WorkerInfo{
 		Id:        info.ID,
-		Name:      info.Name,
 		IpAddress: info.IPAddress,
-		Port:      info.Port,
+		Port:      int32(info.Port),
 	}, nil
 }
 
@@ -50,11 +46,39 @@ func (s *AgentServer) DestroyContainer(ctx context.Context, req *pb.DestroyConta
 		return nil, status.Error(codes.InvalidArgument, "container_id is required")
 	}
 
-	if err := s.runtime.DestroyContainer(ctx, req.ContainerId); err != nil {
+	if err := s.runtime.Destroy(ctx, req.ContainerId); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to destroy container: %v", err)
 	}
 
 	return &pb.DestroyContainerResponse{
+		Success: true,
+	}, nil
+}
+
+func (s *AgentServer) PauseContainer(ctx context.Context, req *pb.PauseContainerRequest) (*pb.PauseContainerResponse, error) {
+	if req.ContainerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "container_id is required")
+	}
+
+	if err := s.runtime.Pause(ctx, req.ContainerId); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to pause container: %v", err)
+	}
+
+	return &pb.PauseContainerResponse{
+		Success: true,
+	}, nil
+}
+
+func (s *AgentServer) ResumeContainer(ctx context.Context, req *pb.ResumeContainerRequest) (*pb.ResumeContainerResponse, error) {
+	if req.ContainerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "container_id is required")
+	}
+
+	if err := s.runtime.Resume(ctx, req.ContainerId); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to resume container: %v", err)
+	}
+
+	return &pb.ResumeContainerResponse{
 		Success: true,
 	}, nil
 }

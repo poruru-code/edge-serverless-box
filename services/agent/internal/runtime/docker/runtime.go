@@ -1,4 +1,4 @@
-package runtime
+package docker
 
 import (
 	"context"
@@ -9,91 +9,73 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
+	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // DockerClient defines the subset of Docker API used by Agent.
-// This interface allows mocking for testing.
 type DockerClient interface {
-	ContainerList(ctx context.Context, options types.ContainerListOptions) ([]types.Container, error)
+	ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error)
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error)
-	ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error
-	// NetworkConnect is crucial for ensuring Lambda containers can talk to Gateway
+	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
 	NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
 	ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error)
-	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
-	ImagePull(ctx context.Context, ref string, options types.ImagePullOptions) (io.ReadCloser, error)
+	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
+	ImagePull(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error)
 }
 
-type DockerRuntime struct {
+type Runtime struct {
 	client    DockerClient
 	networkID string
 }
 
-func NewDockerRuntime(client DockerClient, networkID string) *DockerRuntime {
-	return &DockerRuntime{
+func NewRuntime(client DockerClient, networkID string) *Runtime {
+	return &Runtime{
 		client:    client,
 		networkID: networkID,
 	}
 }
 
-// WorkerInfo represents a running container instance
-type WorkerInfo struct {
-	ID        string
-	Name      string
-	IPAddress string
-	Port      int32
-}
-
-func (r *DockerRuntime) EnsureContainer(ctx context.Context, functionName string, image string, env map[string]string) (*WorkerInfo, error) {
+func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runtime.WorkerInfo, error) {
 	// 1. Check if container exists
 	filter := filters.NewArgs()
-	filter.Add("label", fmt.Sprintf("esb_function=%s", functionName))
+	filter.Add("label", fmt.Sprintf("esb_function=%s", req.FunctionName))
 
-	containers, err := r.client.ContainerList(ctx, types.ContainerListOptions{
+	containers, err := r.client.ContainerList(ctx, container.ListOptions{
 		Filters: filter,
-		All:     true, // Include stopped containers to restart them if needed
+		All:     true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
 	var containerID string
-	var containerName string
+	// var containerName string // info.Name will be used from inspect
 
 	if len(containers) > 0 {
-		// Found existing container
 		c := containers[0]
 		containerID = c.ID
-		containerName = c.Names[0] // Usually starts with /
-		if len(containerName) > 1 && containerName[0] == '/' {
-			containerName = containerName[1:]
-		}
 
 		if c.State != "running" {
-			// Restart
-			if err := r.client.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+			if err := r.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 				return nil, fmt.Errorf("failed to start existing container: %w", err)
 			}
 		}
 
-		// Ensure network connection (might be already connected, so we ignore error if it's already in the network)
-		// But it's safer to call it and handle specific "already connected" error if needed, 
-		// however docker usually just returns success or a specific error we can check.
 		_ = r.client.NetworkConnect(ctx, r.networkID, containerID, &network.EndpointSettings{})
 	} else {
-		// Create new container
+		image := req.Image
 		if image == "" {
-			image = fmt.Sprintf("%s:latest", functionName)
+			image = fmt.Sprintf("%s:latest", req.FunctionName)
 		}
 
-		containerName = fmt.Sprintf("lambda-%s-%d", functionName, time.Now().UnixNano())
+		containerName := fmt.Sprintf("lambda-%s-%d", req.FunctionName, time.Now().UnixNano())
 
-		// Prepare Env
-		envList := make([]string, 0, len(env))
-		for k, v := range env {
+		envList := make([]string, 0, len(req.Env))
+		for k, v := range req.Env {
 			envList = append(envList, fmt.Sprintf("%s=%s", k, v))
 		}
 
@@ -101,7 +83,7 @@ func (r *DockerRuntime) EnsureContainer(ctx context.Context, functionName string
 			Image: image,
 			Env:   envList,
 			Labels: map[string]string{
-				"esb_function": functionName,
+				"esb_function": req.FunctionName,
 				"created_by":   "esb-agent",
 			},
 			ExposedPorts: nat.PortSet{
@@ -111,10 +93,8 @@ func (r *DockerRuntime) EnsureContainer(ctx context.Context, functionName string
 
 		hostConfig := &container.HostConfig{
 			RestartPolicy: container.RestartPolicy{Name: "no"},
-			// PortBindings can be added if we want to expose to host, but usually internal network is enough
 		}
 
-		// Important: Connect to the specified network
 		networkingConfig := &network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
 				r.networkID: {},
@@ -127,12 +107,11 @@ func (r *DockerRuntime) EnsureContainer(ctx context.Context, functionName string
 		}
 		containerID = resp.ID
 
-		if err := r.client.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+		if err := r.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 			return nil, fmt.Errorf("failed to start container: %w", err)
 		}
 	}
 
-	// Inspect to get IP address
 	info, err := r.client.ContainerInspect(ctx, containerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
@@ -145,9 +124,7 @@ func (r *DockerRuntime) EnsureContainer(ctx context.Context, functionName string
 		}
 	}
 
-	// Fallback if IP is empty (rare case or host networking)
-	if ip == "" {
-		// Try to find any IP
+	if ip == "" && info.NetworkSettings != nil {
 		for _, netData := range info.NetworkSettings.Networks {
 			if netData.IPAddress != "" {
 				ip = netData.IPAddress
@@ -156,14 +133,27 @@ func (r *DockerRuntime) EnsureContainer(ctx context.Context, functionName string
 		}
 	}
 
-	return &WorkerInfo{
+	return &runtime.WorkerInfo{
 		ID:        containerID,
-		Name:      containerName, // or info.Name
 		IPAddress: ip,
 		Port:      8080,
 	}, nil
 }
 
-func (r *DockerRuntime) DestroyContainer(ctx context.Context, containerID string) error {
-	return r.client.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true})
+func (r *Runtime) Destroy(ctx context.Context, id string) error {
+	return r.client.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+}
+
+func (r *Runtime) Pause(ctx context.Context, id string) error {
+	// Docker 自身の Pause 機能を呼ぶことも可能だが、Phase 2 の主目的は containerd。
+	// Docker 版では簡略化するか、未実装でも良いが、インターフェース互換のために空実装またはエラーを返す。
+	return fmt.Errorf("pause not implemented for docker runtime")
+}
+
+func (r *Runtime) Resume(ctx context.Context, id string) error {
+	return fmt.Errorf("resume not implemented for docker runtime")
+}
+
+func (r *Runtime) Close() error {
+	return nil
 }

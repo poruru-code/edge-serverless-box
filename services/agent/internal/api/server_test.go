@@ -29,16 +29,31 @@ type MockRuntime struct {
 // For now, let's define the interface in the test or use the concrete type from runtime package.
 // We'll update imports to include runtime package.
 
-func (m *MockRuntime) EnsureContainer(ctx context.Context, functionName string, image string, env map[string]string) (*runtime.WorkerInfo, error) {
-	args := m.Called(ctx, functionName, image, env)
+func (m *MockRuntime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runtime.WorkerInfo, error) {
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*runtime.WorkerInfo), args.Error(1)
 }
 
-func (m *MockRuntime) DestroyContainer(ctx context.Context, containerID string) error {
+func (m *MockRuntime) Destroy(ctx context.Context, containerID string) error {
 	args := m.Called(ctx, containerID)
+	return args.Error(0)
+}
+
+func (m *MockRuntime) Pause(ctx context.Context, containerID string) error {
+	args := m.Called(ctx, containerID)
+	return args.Error(0)
+}
+
+func (m *MockRuntime) Resume(ctx context.Context, containerID string) error {
+	args := m.Called(ctx, containerID)
+	return args.Error(0)
+}
+
+func (m *MockRuntime) Close() error {
+	args := m.Called()
 	return args.Error(0)
 }
 
@@ -85,12 +100,15 @@ func TestEnsureContainer(t *testing.T) {
 
 	expectedWorker := &runtime.WorkerInfo{
 		ID:        "container-123",
-		Name:      "lambda-test-func-123",
 		IPAddress: "10.0.0.9",
 		Port:      8080,
 	}
 
-	mockRT.On("EnsureContainer", mock.Anything, fnName, image, env).Return(expectedWorker, nil)
+	mockRT.On("Ensure", mock.Anything, runtime.EnsureRequest{
+		FunctionName: fnName,
+		Image:        image,
+		Env:          env,
+	}).Return(expectedWorker, nil)
 
 	req := &pb.EnsureContainerRequest{
 		FunctionName: fnName,
@@ -104,5 +122,68 @@ func TestEnsureContainer(t *testing.T) {
 	assert.Equal(t, expectedWorker.ID, resp.Id)
 	assert.Equal(t, expectedWorker.IPAddress, resp.IpAddress)
 
+	mockRT.AssertExpectations(t)
+}
+
+func TestDestroyContainer(t *testing.T) {
+	mockRT := new(MockRuntime)
+	conn := initServer(t, mockRT)
+	defer conn.Close()
+
+	client := pb.NewAgentServiceClient(conn)
+	containerID := "test-container-id"
+
+	mockRT.On("Destroy", mock.Anything, containerID).Return(nil)
+
+	req := &pb.DestroyContainerRequest{
+		ContainerId: containerID,
+	}
+
+	resp, err := client.DestroyContainer(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+	mockRT.AssertExpectations(t)
+}
+
+func TestPauseContainer(t *testing.T) {
+	mockRT := new(MockRuntime)
+	conn := initServer(t, mockRT)
+	defer conn.Close()
+
+	client := pb.NewAgentServiceClient(conn)
+	containerID := "test-container-id"
+
+	mockRT.On("Pause", mock.Anything, containerID).Return(nil)
+
+	req := &pb.PauseContainerRequest{
+		ContainerId: containerID,
+	}
+
+	resp, err := client.PauseContainer(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+	mockRT.AssertExpectations(t)
+}
+
+func TestResumeContainer(t *testing.T) {
+	mockRT := new(MockRuntime)
+	conn := initServer(t, mockRT)
+	defer conn.Close()
+
+	client := pb.NewAgentServiceClient(conn)
+	containerID := "test-container-id"
+
+	mockRT.On("Resume", mock.Anything, containerID).Return(nil)
+
+	req := &pb.ResumeContainerRequest{
+		ContainerId: containerID,
+	}
+
+	resp, err := client.ResumeContainer(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
 	mockRT.AssertExpectations(t)
 }

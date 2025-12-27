@@ -21,6 +21,8 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AgentService_EnsureContainer_FullMethodName  = "/esb.agent.v1.AgentService/EnsureContainer"
 	AgentService_DestroyContainer_FullMethodName = "/esb.agent.v1.AgentService/DestroyContainer"
+	AgentService_PauseContainer_FullMethodName   = "/esb.agent.v1.AgentService/PauseContainer"
+	AgentService_ResumeContainer_FullMethodName  = "/esb.agent.v1.AgentService/ResumeContainer"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -31,6 +33,10 @@ type AgentServiceClient interface {
 	EnsureContainer(ctx context.Context, in *EnsureContainerRequest, opts ...grpc.CallOption) (*WorkerInfo, error)
 	// 明示的にコンテナを停止・削除する
 	DestroyContainer(ctx context.Context, in *DestroyContainerRequest, opts ...grpc.CallOption) (*DestroyContainerResponse, error)
+	// コンテナを一時停止する (Warm Start 用)
+	PauseContainer(ctx context.Context, in *PauseContainerRequest, opts ...grpc.CallOption) (*PauseContainerResponse, error)
+	// コンテナを再開する (Warm Start 用)
+	ResumeContainer(ctx context.Context, in *ResumeContainerRequest, opts ...grpc.CallOption) (*ResumeContainerResponse, error)
 }
 
 type agentServiceClient struct {
@@ -61,6 +67,26 @@ func (c *agentServiceClient) DestroyContainer(ctx context.Context, in *DestroyCo
 	return out, nil
 }
 
+func (c *agentServiceClient) PauseContainer(ctx context.Context, in *PauseContainerRequest, opts ...grpc.CallOption) (*PauseContainerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PauseContainerResponse)
+	err := c.cc.Invoke(ctx, AgentService_PauseContainer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ResumeContainer(ctx context.Context, in *ResumeContainerRequest, opts ...grpc.CallOption) (*ResumeContainerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResumeContainerResponse)
+	err := c.cc.Invoke(ctx, AgentService_ResumeContainer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -69,6 +95,10 @@ type AgentServiceServer interface {
 	EnsureContainer(context.Context, *EnsureContainerRequest) (*WorkerInfo, error)
 	// 明示的にコンテナを停止・削除する
 	DestroyContainer(context.Context, *DestroyContainerRequest) (*DestroyContainerResponse, error)
+	// コンテナを一時停止する (Warm Start 用)
+	PauseContainer(context.Context, *PauseContainerRequest) (*PauseContainerResponse, error)
+	// コンテナを再開する (Warm Start 用)
+	ResumeContainer(context.Context, *ResumeContainerRequest) (*ResumeContainerResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -84,6 +114,12 @@ func (UnimplementedAgentServiceServer) EnsureContainer(context.Context, *EnsureC
 }
 func (UnimplementedAgentServiceServer) DestroyContainer(context.Context, *DestroyContainerRequest) (*DestroyContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DestroyContainer not implemented")
+}
+func (UnimplementedAgentServiceServer) PauseContainer(context.Context, *PauseContainerRequest) (*PauseContainerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PauseContainer not implemented")
+}
+func (UnimplementedAgentServiceServer) ResumeContainer(context.Context, *ResumeContainerRequest) (*ResumeContainerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResumeContainer not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -142,6 +178,42 @@ func _AgentService_DestroyContainer_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_PauseContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PauseContainerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).PauseContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_PauseContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).PauseContainer(ctx, req.(*PauseContainerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ResumeContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeContainerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ResumeContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ResumeContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ResumeContainer(ctx, req.(*ResumeContainerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -156,6 +228,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DestroyContainer",
 			Handler:    _AgentService_DestroyContainer_Handler,
+		},
+		{
+			MethodName: "PauseContainer",
+			Handler:    _AgentService_PauseContainer_Handler,
+		},
+		{
+			MethodName: "ResumeContainer",
+			Handler:    _AgentService_ResumeContainer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

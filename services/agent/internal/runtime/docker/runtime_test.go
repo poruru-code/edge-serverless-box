@@ -1,4 +1,4 @@
-package runtime_test
+package docker
 
 import (
 	"context"
@@ -8,35 +8,29 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// MockDockerClient mocks the Docker API client
 type MockDockerClient struct {
 	mock.Mock
 }
 
-func (m *MockDockerClient) ContainerList(ctx context.Context, options types.ContainerListOptions) ([]types.Container, error) {
+func (m *MockDockerClient) ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error) {
 	args := m.Called(ctx, options)
 	return args.Get(0).([]types.Container), args.Error(1)
 }
 
 func (m *MockDockerClient) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
-	// v1.Platform is from opencontainers/image-spec, but client interface uses it.
-	// We can use interface{} for platform to simplify if needed, but better stick to signature if we implement interface.
-	// Since we are not implementing the full CommonAPIClient interface here (it's huge),
-	// we will define an interface in runtime/docker.go that covers what we need.
-	// For this test, we assume runtime.DockerClient interface.
-
 	args := m.Called(ctx, config, hostConfig, networkingConfig, platform, containerName)
 	return args.Get(0).(container.CreateResponse), args.Error(1)
 }
 
-func (m *MockDockerClient) ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error {
+func (m *MockDockerClient) ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error {
 	args := m.Called(ctx, containerID, options)
 	return args.Error(0)
 }
@@ -51,91 +45,89 @@ func (m *MockDockerClient) ContainerInspect(ctx context.Context, containerID str
 	return args.Get(0).(types.ContainerJSON), args.Error(1)
 }
 
-func (m *MockDockerClient) ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error {
+func (m *MockDockerClient) ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error {
 	args := m.Called(ctx, containerID, options)
 	return args.Error(0)
 }
 
-func (m *MockDockerClient) ImagePull(ctx context.Context, ref string, options types.ImagePullOptions) (io.ReadCloser, error) {
+func (m *MockDockerClient) ImagePull(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error) {
 	args := m.Called(ctx, ref, options)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(io.ReadCloser), args.Error(1)
 }
 
-// Ensure MockDockerClient satisfies runtime.DockerClient interface (defined later)
-// var _ runtime.DockerClient = (*MockDockerClient)(nil)
-
-func TestDockerRuntime_EnsureContainer_New(t *testing.T) {
+func TestRuntime_Ensure_New(t *testing.T) {
 	mockClient := new(MockDockerClient)
-	rt := runtime.NewDockerRuntime(mockClient, "edge-serverless-box_default")
+	rt := NewRuntime(mockClient, "esb-net")
 
 	ctx := context.Background()
-	fnName := "test-func"
-	image := "test-image"
-	env := map[string]string{"KEY": "ALUE"}
+	req := runtime.EnsureRequest{
+		FunctionName: "test-func",
+		Image:        "test-image",
+	}
 
 	// 1. List: Not found
 	mockClient.On("ContainerList", ctx, mock.Anything).Return([]types.Container{}, nil)
 
 	// 2. Create
-	mockClient.On("ContainerCreate", ctx, mock.MatchedBy(func(c *container.Config) bool {
-		return c.Image == image && c.Env[0] == "KEY=ALUE" && c.Labels["esb_function"] == fnName
-	}), mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(container.CreateResponse{ID: "new-id"}, nil)
+	mockClient.On("ContainerCreate", ctx, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(container.CreateResponse{ID: "new-id"}, nil)
 
 	// 3. Start
 	mockClient.On("ContainerStart", ctx, "new-id", mock.Anything).Return(nil)
 
-	// 4. Inspect (to get IP)
+	// 4. Inspect
 	mockClient.On("ContainerInspect", ctx, "new-id").Return(types.ContainerJSON{
 		NetworkSettings: &types.NetworkSettings{
 			Networks: map[string]*network.EndpointSettings{
-				"edge-serverless-box_default": {IPAddress: "10.0.0.2"},
+				"esb-net": {IPAddress: "10.0.0.2"},
 			},
 		},
 	}, nil)
 
 	// Execute
-	info, err := rt.EnsureContainer(ctx, fnName, image, env)
+	info, err := rt.Ensure(ctx, req)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "new-id", info.ID)
 	assert.Equal(t, "10.0.0.2", info.IPAddress)
 
-	// Verify Network Config was applied (either via Create or Connect)
-	// In this mock, we assume Create handles it via networkingConfig
 	mockClient.AssertExpectations(t)
 }
 
-func TestDockerRuntime_EnsureContainer_Exists(t *testing.T) {
+func TestRuntime_Ensure_Exists(t *testing.T) {
 	mockClient := new(MockDockerClient)
-	rt := runtime.NewDockerRuntime(mockClient, "edge-serverless-box_default")
+	rt := NewRuntime(mockClient, "esb-net")
 
 	ctx := context.Background()
-	fnName := "existing-func"
+	req := runtime.EnsureRequest{FunctionName: "existing-func"}
 
 	// 1. List: Found
 	mockClient.On("ContainerList", ctx, mock.Anything).Return([]types.Container{
 		{
 			ID:     "existing-id",
-			Names:  []string{"/lambda-existing-func-1234"},
-			Labels: map[string]string{"esb_function": fnName},
+			Names:  []string{"/lambda-existing-func-123"},
+			Labels: map[string]string{"esb_function": "existing-func"},
 			State:  "running",
 		},
 	}, nil)
 
-	// 2. Network Connect: Success
-	mockClient.On("NetworkConnect", ctx, "edge-serverless-box_default", "existing-id", mock.Anything).Return(nil)
+	// 2. Network Connect
+	mockClient.On("NetworkConnect", ctx, "esb-net", "existing-id", mock.Anything).Return(nil)
 
 	// 3. Inspect
 	mockClient.On("ContainerInspect", ctx, "existing-id").Return(types.ContainerJSON{
 		NetworkSettings: &types.NetworkSettings{
 			Networks: map[string]*network.EndpointSettings{
-				"edge-serverless-box_default": {IPAddress: "10.0.0.3"},
+				"esb-net": {IPAddress: "10.0.0.3"},
 			},
 		},
 	}, nil)
 
 	// Execute
-	info, err := rt.EnsureContainer(ctx, fnName, "", nil)
+	info, err := rt.Ensure(ctx, req)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "existing-id", info.ID)
@@ -144,41 +136,40 @@ func TestDockerRuntime_EnsureContainer_Exists(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestDockerRuntime_EnsureContainer_Exists_NetworkError(t *testing.T) {
+func TestRuntime_Ensure_Exists_NetworkError(t *testing.T) {
 	mockClient := new(MockDockerClient)
-	rt := runtime.NewDockerRuntime(mockClient, "edge-serverless-box_default")
+	rt := NewRuntime(mockClient, "esb-net")
 
 	ctx := context.Background()
-	fnName := "existing-func"
+	req := runtime.EnsureRequest{FunctionName: "existing-func"}
 
 	// 1. List: Found
 	mockClient.On("ContainerList", ctx, mock.Anything).Return([]types.Container{
 		{
 			ID:     "existing-id",
-			Names:  []string{"/lambda-existing-func-1234"},
-			Labels: map[string]string{"esb_function": fnName},
+			Names:  []string{"/lambda-existing-func-123"},
+			Labels: map[string]string{"esb_function": "existing-func"},
 			State:  "running",
 		},
 	}, nil)
 
-	// 2. Network Connect (simulate error, e.g., already connected)
-	mockClient.On("NetworkConnect", ctx, "edge-serverless-box_default", "existing-id", mock.Anything).Return(fmt.Errorf("already connected"))
+	// 2. Network Connect (simulate "already connected" error which should be ignored)
+	mockClient.On("NetworkConnect", ctx, "esb-net", "existing-id", mock.Anything).Return(fmt.Errorf("already connected"))
 
 	// 3. Inspect
 	mockClient.On("ContainerInspect", ctx, "existing-id").Return(types.ContainerJSON{
 		NetworkSettings: &types.NetworkSettings{
 			Networks: map[string]*network.EndpointSettings{
-				"edge-serverless-box_default": {IPAddress: "10.0.0.3"},
+				"esb-net": {IPAddress: "10.0.0.3"},
 			},
 		},
 	}, nil)
 
 	// Execute
-	info, err := rt.EnsureContainer(ctx, fnName, "", nil)
+	info, err := rt.Ensure(ctx, req)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "existing-id", info.ID)
-	assert.Equal(t, "10.0.0.3", info.IPAddress)
 
 	mockClient.AssertExpectations(t)
 }

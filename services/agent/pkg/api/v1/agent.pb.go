@@ -21,6 +21,182 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type PauseContainerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ContainerId   string                 `protobuf:"bytes,1,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PauseContainerRequest) Reset() {
+	*x = PauseContainerRequest{}
+	mi := &file_agent_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PauseContainerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PauseContainerRequest) ProtoMessage() {}
+
+func (x *PauseContainerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PauseContainerRequest.ProtoReflect.Descriptor instead.
+func (*PauseContainerRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *PauseContainerRequest) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+type PauseContainerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PauseContainerResponse) Reset() {
+	*x = PauseContainerResponse{}
+	mi := &file_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PauseContainerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PauseContainerResponse) ProtoMessage() {}
+
+func (x *PauseContainerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PauseContainerResponse.ProtoReflect.Descriptor instead.
+func (*PauseContainerResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *PauseContainerResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+type ResumeContainerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ContainerId   string                 `protobuf:"bytes,1,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResumeContainerRequest) Reset() {
+	*x = ResumeContainerRequest{}
+	mi := &file_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeContainerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeContainerRequest) ProtoMessage() {}
+
+func (x *ResumeContainerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeContainerRequest.ProtoReflect.Descriptor instead.
+func (*ResumeContainerRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ResumeContainerRequest) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+type ResumeContainerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResumeContainerResponse) Reset() {
+	*x = ResumeContainerResponse{}
+	mi := &file_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeContainerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeContainerResponse) ProtoMessage() {}
+
+func (x *ResumeContainerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeContainerResponse.ProtoReflect.Descriptor instead.
+func (*ResumeContainerResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ResumeContainerResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 type EnsureContainerRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FunctionName  string                 `protobuf:"bytes,1,opt,name=function_name,json=functionName,proto3" json:"function_name,omitempty"`
@@ -32,7 +208,7 @@ type EnsureContainerRequest struct {
 
 func (x *EnsureContainerRequest) Reset() {
 	*x = EnsureContainerRequest{}
-	mi := &file_agent_proto_msgTypes[0]
+	mi := &file_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +220,7 @@ func (x *EnsureContainerRequest) String() string {
 func (*EnsureContainerRequest) ProtoMessage() {}
 
 func (x *EnsureContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[0]
+	mi := &file_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +233,7 @@ func (x *EnsureContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureContainerRequest.ProtoReflect.Descriptor instead.
 func (*EnsureContainerRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{0}
+	return file_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *EnsureContainerRequest) GetFunctionName() string {
@@ -91,7 +267,7 @@ type DestroyContainerRequest struct {
 
 func (x *DestroyContainerRequest) Reset() {
 	*x = DestroyContainerRequest{}
-	mi := &file_agent_proto_msgTypes[1]
+	mi := &file_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +279,7 @@ func (x *DestroyContainerRequest) String() string {
 func (*DestroyContainerRequest) ProtoMessage() {}
 
 func (x *DestroyContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[1]
+	mi := &file_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +292,7 @@ func (x *DestroyContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyContainerRequest.ProtoReflect.Descriptor instead.
 func (*DestroyContainerRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{1}
+	return file_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DestroyContainerRequest) GetFunctionName() string {
@@ -142,7 +318,7 @@ type DestroyContainerResponse struct {
 
 func (x *DestroyContainerResponse) Reset() {
 	*x = DestroyContainerResponse{}
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -154,7 +330,7 @@ func (x *DestroyContainerResponse) String() string {
 func (*DestroyContainerResponse) ProtoMessage() {}
 
 func (x *DestroyContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -167,7 +343,7 @@ func (x *DestroyContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyContainerResponse.ProtoReflect.Descriptor instead.
 func (*DestroyContainerResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{2}
+	return file_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DestroyContainerResponse) GetSuccess() bool {
@@ -189,7 +365,7 @@ type WorkerInfo struct {
 
 func (x *WorkerInfo) Reset() {
 	*x = WorkerInfo{}
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -201,7 +377,7 @@ func (x *WorkerInfo) String() string {
 func (*WorkerInfo) ProtoMessage() {}
 
 func (x *WorkerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -214,7 +390,7 @@ func (x *WorkerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerInfo.ProtoReflect.Descriptor instead.
 func (*WorkerInfo) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{3}
+	return file_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *WorkerInfo) GetId() string {
@@ -249,7 +425,15 @@ var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\fesb.agent.v1\"\xcc\x01\n" +
+	"\vagent.proto\x12\fesb.agent.v1\":\n" +
+	"\x15PauseContainerRequest\x12!\n" +
+	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"2\n" +
+	"\x16PauseContainerResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\";\n" +
+	"\x16ResumeContainerRequest\x12!\n" +
+	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"3\n" +
+	"\x17ResumeContainerResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xcc\x01\n" +
 	"\x16EnsureContainerRequest\x12#\n" +
 	"\rfunction_name\x18\x01 \x01(\tR\ffunctionName\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12?\n" +
@@ -268,10 +452,12 @@ const file_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"ip_address\x18\x03 \x01(\tR\tipAddress\x12\x12\n" +
-	"\x04port\x18\x04 \x01(\x05R\x04port2\xc4\x01\n" +
+	"\x04port\x18\x04 \x01(\x05R\x04port2\x81\x03\n" +
 	"\fAgentService\x12Q\n" +
 	"\x0fEnsureContainer\x12$.esb.agent.v1.EnsureContainerRequest\x1a\x18.esb.agent.v1.WorkerInfo\x12a\n" +
-	"\x10DestroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3"
+	"\x10DestroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponse\x12[\n" +
+	"\x0ePauseContainer\x12#.esb.agent.v1.PauseContainerRequest\x1a$.esb.agent.v1.PauseContainerResponse\x12^\n" +
+	"\x0fResumeContainer\x12$.esb.agent.v1.ResumeContainerRequest\x1a%.esb.agent.v1.ResumeContainerResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -285,22 +471,30 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_agent_proto_goTypes = []any{
-	(*EnsureContainerRequest)(nil),   // 0: esb.agent.v1.EnsureContainerRequest
-	(*DestroyContainerRequest)(nil),  // 1: esb.agent.v1.DestroyContainerRequest
-	(*DestroyContainerResponse)(nil), // 2: esb.agent.v1.DestroyContainerResponse
-	(*WorkerInfo)(nil),               // 3: esb.agent.v1.WorkerInfo
-	nil,                              // 4: esb.agent.v1.EnsureContainerRequest.EnvEntry
+	(*PauseContainerRequest)(nil),    // 0: esb.agent.v1.PauseContainerRequest
+	(*PauseContainerResponse)(nil),   // 1: esb.agent.v1.PauseContainerResponse
+	(*ResumeContainerRequest)(nil),   // 2: esb.agent.v1.ResumeContainerRequest
+	(*ResumeContainerResponse)(nil),  // 3: esb.agent.v1.ResumeContainerResponse
+	(*EnsureContainerRequest)(nil),   // 4: esb.agent.v1.EnsureContainerRequest
+	(*DestroyContainerRequest)(nil),  // 5: esb.agent.v1.DestroyContainerRequest
+	(*DestroyContainerResponse)(nil), // 6: esb.agent.v1.DestroyContainerResponse
+	(*WorkerInfo)(nil),               // 7: esb.agent.v1.WorkerInfo
+	nil,                              // 8: esb.agent.v1.EnsureContainerRequest.EnvEntry
 }
 var file_agent_proto_depIdxs = []int32{
-	4, // 0: esb.agent.v1.EnsureContainerRequest.env:type_name -> esb.agent.v1.EnsureContainerRequest.EnvEntry
-	0, // 1: esb.agent.v1.AgentService.EnsureContainer:input_type -> esb.agent.v1.EnsureContainerRequest
-	1, // 2: esb.agent.v1.AgentService.DestroyContainer:input_type -> esb.agent.v1.DestroyContainerRequest
-	3, // 3: esb.agent.v1.AgentService.EnsureContainer:output_type -> esb.agent.v1.WorkerInfo
-	2, // 4: esb.agent.v1.AgentService.DestroyContainer:output_type -> esb.agent.v1.DestroyContainerResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
+	8, // 0: esb.agent.v1.EnsureContainerRequest.env:type_name -> esb.agent.v1.EnsureContainerRequest.EnvEntry
+	4, // 1: esb.agent.v1.AgentService.EnsureContainer:input_type -> esb.agent.v1.EnsureContainerRequest
+	5, // 2: esb.agent.v1.AgentService.DestroyContainer:input_type -> esb.agent.v1.DestroyContainerRequest
+	0, // 3: esb.agent.v1.AgentService.PauseContainer:input_type -> esb.agent.v1.PauseContainerRequest
+	2, // 4: esb.agent.v1.AgentService.ResumeContainer:input_type -> esb.agent.v1.ResumeContainerRequest
+	7, // 5: esb.agent.v1.AgentService.EnsureContainer:output_type -> esb.agent.v1.WorkerInfo
+	6, // 6: esb.agent.v1.AgentService.DestroyContainer:output_type -> esb.agent.v1.DestroyContainerResponse
+	1, // 7: esb.agent.v1.AgentService.PauseContainer:output_type -> esb.agent.v1.PauseContainerResponse
+	3, // 8: esb.agent.v1.AgentService.ResumeContainer:output_type -> esb.agent.v1.ResumeContainerResponse
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -317,7 +511,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

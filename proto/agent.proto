@@ -9,6 +9,28 @@ service AgentService {
   
   // 明示的にコンテナを停止・削除する
   rpc DestroyContainer (DestroyContainerRequest) returns (DestroyContainerResponse);
+
+  // コンテナを一時停止する (Warm Start 用)
+  rpc PauseContainer (PauseContainerRequest) returns (PauseContainerResponse);
+
+  // コンテナを再開する (Warm Start 用)
+  rpc ResumeContainer (ResumeContainerRequest) returns (ResumeContainerResponse);
+}
+
+message PauseContainerRequest {
+  string container_id = 1;
+}
+
+message PauseContainerResponse {
+  bool success = 1;
+}
+
+message ResumeContainerRequest {
+  string container_id = 1;
+}
+
+message ResumeContainerResponse {
+  bool success = 1;
 }
 
 message EnsureContainerRequest {

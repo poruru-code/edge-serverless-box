@@ -20,7 +20,7 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x0b\x61gent.proto\x12\x0c\x65sb.agent.v1"\xa6\x01\n\x16\x45nsureContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\r\n\x05image\x18\x02 \x01(\t\x12:\n\x03\x65nv\x18\x03 \x03(\x0b\x32-.esb.agent.v1.EnsureContainerRequest.EnvEntry\x1a*\n\x08\x45nvEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"F\n\x17\x44\x65stroyContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\x14\n\x0c\x63ontainer_id\x18\x02 \x01(\t"+\n\x18\x44\x65stroyContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08"H\n\nWorkerInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x12\n\nip_address\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x05\x32\xc4\x01\n\x0c\x41gentService\x12Q\n\x0f\x45nsureContainer\x12$.esb.agent.v1.EnsureContainerRequest\x1a\x18.esb.agent.v1.WorkerInfo\x12\x61\n\x10\x44\x65stroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3'
+    b'\n\x0b\x61gent.proto\x12\x0c\x65sb.agent.v1"-\n\x15PauseContainerRequest\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t")\n\x16PauseContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08".\n\x16ResumeContainerRequest\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t"*\n\x17ResumeContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08"\xa6\x01\n\x16\x45nsureContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\r\n\x05image\x18\x02 \x01(\t\x12:\n\x03\x65nv\x18\x03 \x03(\x0b\x32-.esb.agent.v1.EnsureContainerRequest.EnvEntry\x1a*\n\x08\x45nvEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"F\n\x17\x44\x65stroyContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\x14\n\x0c\x63ontainer_id\x18\x02 \x01(\t"+\n\x18\x44\x65stroyContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08"H\n\nWorkerInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x12\n\nip_address\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x05\x32\x81\x03\n\x0c\x41gentService\x12Q\n\x0f\x45nsureContainer\x12$.esb.agent.v1.EnsureContainerRequest\x1a\x18.esb.agent.v1.WorkerInfo\x12\x61\n\x10\x44\x65stroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponse\x12[\n\x0ePauseContainer\x12#.esb.agent.v1.PauseContainerRequest\x1a$.esb.agent.v1.PauseContainerResponse\x12^\n\x0fResumeContainer\x12$.esb.agent.v1.ResumeContainerRequest\x1a%.esb.agent.v1.ResumeContainerResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3'
 )
 
 _globals = globals()
@@ -33,16 +33,24 @@ if not _descriptor._USE_C_DESCRIPTORS:
     ]._serialized_options = b"Z?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1"
     _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._loaded_options = None
     _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_options = b"8\001"
-    _globals["_ENSURECONTAINERREQUEST"]._serialized_start = 30
-    _globals["_ENSURECONTAINERREQUEST"]._serialized_end = 196
-    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_start = 154
-    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_end = 196
-    _globals["_DESTROYCONTAINERREQUEST"]._serialized_start = 198
-    _globals["_DESTROYCONTAINERREQUEST"]._serialized_end = 268
-    _globals["_DESTROYCONTAINERRESPONSE"]._serialized_start = 270
-    _globals["_DESTROYCONTAINERRESPONSE"]._serialized_end = 313
-    _globals["_WORKERINFO"]._serialized_start = 315
-    _globals["_WORKERINFO"]._serialized_end = 387
-    _globals["_AGENTSERVICE"]._serialized_start = 390
-    _globals["_AGENTSERVICE"]._serialized_end = 586
+    _globals["_PAUSECONTAINERREQUEST"]._serialized_start = 29
+    _globals["_PAUSECONTAINERREQUEST"]._serialized_end = 74
+    _globals["_PAUSECONTAINERRESPONSE"]._serialized_start = 76
+    _globals["_PAUSECONTAINERRESPONSE"]._serialized_end = 117
+    _globals["_RESUMECONTAINERREQUEST"]._serialized_start = 119
+    _globals["_RESUMECONTAINERREQUEST"]._serialized_end = 165
+    _globals["_RESUMECONTAINERRESPONSE"]._serialized_start = 167
+    _globals["_RESUMECONTAINERRESPONSE"]._serialized_end = 209
+    _globals["_ENSURECONTAINERREQUEST"]._serialized_start = 212
+    _globals["_ENSURECONTAINERREQUEST"]._serialized_end = 378
+    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_start = 336
+    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_end = 378
+    _globals["_DESTROYCONTAINERREQUEST"]._serialized_start = 380
+    _globals["_DESTROYCONTAINERREQUEST"]._serialized_end = 450
+    _globals["_DESTROYCONTAINERRESPONSE"]._serialized_start = 452
+    _globals["_DESTROYCONTAINERRESPONSE"]._serialized_end = 495
+    _globals["_WORKERINFO"]._serialized_start = 497
+    _globals["_WORKERINFO"]._serialized_end = 569
+    _globals["_AGENTSERVICE"]._serialized_start = 572
+    _globals["_AGENTSERVICE"]._serialized_end = 957
 # @@protoc_insertion_point(module_scope)
