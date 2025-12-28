@@ -1,5 +1,5 @@
 app:
-  name: ''
+  name: ""
   tag: latest
 paths:
   sam_template: template.yaml

@@ -84,7 +84,8 @@ services:
       - "5000:5000" # Registry API (ホストからのPush用)
     volumes:
       - registry_data:/var/lib/registry
-      - ${ESB_CERT_DIR:-~/.esb/certs}:/certs:ro
+      - ${ESB_CERT_DIR:-~/.esb/certs}/server.crt:/certs/server.crt:ro
+      - ${ESB_CERT_DIR:-~/.esb/certs}/server.key:/certs/server.key:ro
     environment:
       REGISTRY_HTTP_ADDR: 0.0.0.0:5000
       REGISTRY_HTTP_TLS_CERTIFICATE: /certs/server.crt
@@ -139,7 +140,8 @@ services:
     ports:
       - "${GATEWAY_PORT:-443}:443" # HTTPS
     volumes:
-      - ./certs:/app/config/ssl:ro
+      - ${ESB_CERT_DIR:-~/.esb/certs}/server.crt:/app/config/ssl/server.crt:ro
+      - ${ESB_CERT_DIR:-~/.esb/certs}/server.key:/app/config/ssl/server.key:ro
       - ${GATEWAY_FUNCTIONS_YML:-./config/functions.yml}:/app/config/functions.yml:ro
       - ${GATEWAY_ROUTING_YML:-./config/routing.yml}:/app/config/routing.yml:ro
     environment:

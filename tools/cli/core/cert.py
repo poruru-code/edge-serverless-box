@@ -47,13 +47,15 @@ def generate_root_ca(cert_dir: Path):
     )
 
     # Root CAの証明書を生成
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Edge Serverless Box"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "ESB Development Root CA"),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Edge Serverless Box"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "ESB Root CA"),
+        ]
+    )
 
     ca_cert = (
         x509.CertificateBuilder()
@@ -73,11 +75,13 @@ def generate_root_ca(cert_dir: Path):
     cert_dir.mkdir(parents=True, exist_ok=True)
 
     with open(ca_key_file, "wb") as f:
-        f.write(ca_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        ))
+        f.write(
+            ca_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
 
     with open(ca_cert_file, "wb") as f:
         f.write(ca_cert.public_bytes(serialization.Encoding.PEM))
@@ -90,6 +94,14 @@ def generate_server_cert(cert_dir: Path, ca_key_path: Path, ca_cert_path: Path):
     """CA署名付きサーバー証明書を生成"""
     server_key_file = cert_dir / "server.key"
     server_cert_file = cert_dir / "server.crt"
+
+    # 冪等性チェック: サーバー証明書と鍵が存在し、CA証明書より新しい場合はスキップ
+    if server_key_file.exists() and server_cert_file.exists():
+        server_cert_mtime = server_cert_file.stat().st_mtime
+        ca_cert_mtime = ca_cert_path.stat().st_mtime
+        if server_cert_mtime > ca_cert_mtime:
+            logger.debug("Using existing server certificate")
+            return server_cert_file, server_key_file
 
     logger.info("Generating Server Certificate signed by Private CA...")
 
@@ -125,13 +137,15 @@ def generate_server_cert(cert_dir: Path, ca_key_path: Path, ca_cert_path: Path):
             pass
 
     # 証明書を構築
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Edge Serverless Box"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
-    ])
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Edge Serverless Box"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+        ]
+    )
 
     builder = (
         x509.CertificateBuilder()
@@ -158,11 +172,13 @@ def generate_server_cert(cert_dir: Path, ca_key_path: Path, ca_cert_path: Path):
     cert = builder.sign(ca_key, hashes.SHA256())
 
     with open(server_key_file, "wb") as f:
-        f.write(server_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        ))
+        f.write(
+            server_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
 
     with open(server_cert_file, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
@@ -174,6 +190,7 @@ def generate_server_cert(cert_dir: Path, ca_key_path: Path, ca_cert_path: Path):
 def ensure_certs(cert_dir: Path = None):
     """証明書一式を準備する"""
     from tools.cli.config import DEFAULT_CERT_DIR
+
     if cert_dir is None:
         cert_dir = DEFAULT_CERT_DIR
 
