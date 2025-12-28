@@ -17,8 +17,8 @@ from dotenv import load_dotenv
 # .env.test をロード (run_tests.py を経由しない場合でもテスト可能にする)
 env_file = Path(__file__).parent / ".env.test"
 if env_file.exists():
-    print(f"Loading .env.test from {env_file}")
-    load_dotenv(env_file, override=True)
+    print(f"Loading .env.test from {env_file} (base/defaults only)")
+    load_dotenv(env_file, override=False)
 else:
     print(f".env.test not found at {env_file}")
 
