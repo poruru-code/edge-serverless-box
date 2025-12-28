@@ -115,16 +115,16 @@ async def test_lambda_invoker_always_uses_pool_backend():
     with (
         patch("services.gateway.main.config") as mock_config,
         patch(
-            "services.gateway.services.pool_manager.PoolManager.sync_with_manager",
+            "services.gateway.services.pool_manager.PoolManager.cleanup_all_containers",
             new_callable=AsyncMock,
         ),
         patch("services.gateway.services.janitor.HeartbeatJanitor.start", new_callable=AsyncMock),
     ):
         # 他の必要なコンフィグを設定
         mock_config.LAMBDA_INVOKE_TIMEOUT = 30
-        mock_config.ORCHESTRATOR_URL = "http://test"
         mock_config.LAMBDA_PORT = 8080
-        mock_config.ORCHESTRATOR_TIMEOUT = 30
+        mock_config.USE_GRPC_AGENT = True
+        mock_config.AGENT_GRPC_ADDRESS = "test-agent:50051"
         mock_config.DEFAULT_MAX_CAPACITY = 10
         mock_config.DEFAULT_MIN_CAPACITY = 0
         mock_config.POOL_ACQUIRE_TIMEOUT = 30.0
@@ -136,12 +136,3 @@ async def test_lambda_invoker_always_uses_pool_backend():
             invoker = app.state.lambda_invoker
             # backend が PoolManager のインスタンスであることを確認
             assert isinstance(invoker.backend, PoolManager)
-
-            # LegacyBackendAdapter (があれば) が使われていないことを確認
-            try:
-                from services.gateway.services.legacy_adapter import LegacyBackendAdapter
-
-                assert not isinstance(invoker.backend, LegacyBackendAdapter)
-            except ImportError:
-                # 既に削除されている場合はパス
-                pass

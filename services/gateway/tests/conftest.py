@@ -11,7 +11,6 @@ if project_root not in sys.path:
 
 # Set Mock Environment Variables for Testing
 # These must be set before 'services.gateway.config' is imported by any test
-os.environ.setdefault("ORCHESTRATOR_URL", "http://test-manager:8081")
 os.environ.setdefault("GATEWAY_INTERNAL_URL", "http://test-gateway:8000")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-must-be-very-long-for-security")
 os.environ.setdefault("X_API_KEY", "test-api-key")

@@ -48,13 +48,6 @@ class GatewayConfig(BaseAppConfig):
     # 外部連携 (接続先ホスト名は必須 - 環境変数から設定)
     CONTAINERS_NETWORK: str = Field(..., description="Lambdaコンテナの所属ネットワーク")
     GATEWAY_INTERNAL_URL: str = Field(..., description="コンテナから見たGateway URL")
-    ORCHESTRATOR_URL: str = Field(
-        default="",
-        description="OrchestratorサービスURL (Legacy, not needed for USE_GRPC_AGENT=true)",
-    )
-    ORCHESTRATOR_TIMEOUT: float = Field(
-        default=30.0, description="Orchestrator通信タイムアウト(秒)"
-    )
     LAMBDA_INVOKE_TIMEOUT: float = Field(default=30.0, description="Lambda呼び出しタイムアウト(秒)")
 
     # 流量制御 (Phase 4-1)

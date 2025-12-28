@@ -16,7 +16,6 @@ async def test_circuit_breaker_on_rie_200_error_FINAL():
         AUTH_PASS="test",
         CONTAINERS_NETWORK="test",
         GATEWAY_INTERNAL_URL="http://test",
-        ORCHESTRATOR_URL="http://test",
         CIRCUIT_BREAKER_THRESHOLD=2,
         CIRCUIT_BREAKER_RECOVERY_TIMEOUT=10.0,
     )
