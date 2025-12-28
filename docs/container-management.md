@@ -60,9 +60,9 @@ tools/generator/runtime/
 
 **ソース**: Generator により自動生成
 
-生成される Dockerfile:
+生成される Dockerfile（`CONTAINER_REGISTRY` 設定時はプレフィックス付き）:
 ```dockerfile
-FROM esb-lambda-base:latest
+FROM localhost:5010/esb-lambda-base:latest
 
 # Layer (template.yaml で定義)
 COPY tests/fixtures/layers/common/ /opt/
@@ -75,16 +75,14 @@ CMD [ "lambda_function.lambda_handler" ]
 
 ## コンテナライフサイクル
 
-## コンテナライフサイクル
-
-Lambda RIE コンテナは **Orchestrator (Python)** または **Go Agent** により動的に管理されます。これらは再起動時にも実行中のコンテナを認識し、管理下に復帰させる **Adopt & Sync** 機能を備えています（詳細は [orchestrator-restart-resilience.md](./orchestrator-restart-resilience.md) を参照）。
+Lambda RIE コンテナは **Go Agent** により動的に管理されます。Gateway は gRPC で Go Agent に依頼し、containerd 経由でコンテナを起動・削除します。Gateway の Janitor がアイドル/孤児コンテナを定期的に整理します（詳細は [orchestrator-restart-resilience.md](./orchestrator-restart-resilience.md) を参照）。
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway
     participant PoolManager
-    participant Provisioner as Provisioner (Orch/Agent)
+    participant Provisioner as Go Agent (gRPC)
     participant Lambda
 
     Client->>Gateway: リクエスト
@@ -93,8 +91,8 @@ sequenceDiagram
     alt アイドルコンテナあり
         PoolManager-->>Gateway: コンテナ情報 (Reuse)
     else キャパ余裕あり
-        PoolManager->>Provisioner: Provision Request (gRPC/HTTP)
-        Provisioner->>Lambda: Create Container (Containerd/Docker)
+        PoolManager->>Provisioner: Provision Request (gRPC)
+        Provisioner->>Lambda: Create Container (containerd/CNI)
         Lambda-->>Provisioner: 起動完了
         Provisioner-->>PoolManager: コンテナ情報
         PoolManager-->>Gateway: コンテナ情報 (New)
@@ -108,7 +106,7 @@ sequenceDiagram
     Gateway->>PoolManager: release_worker
     Gateway-->>Client: レスポンス
     
-    Note over Provisioner,Lambda: 一定時間のリクエスト不在(ハートビート途絶)で自動停止
+    Note over Provisioner,Lambda: 一定時間のリクエスト不在で Janitor が削除
 ```
 
 ### コンテナ状態遷移
@@ -146,11 +144,11 @@ docker image prune -f
 ### コンテナログの確認
 
 ```bash
-# 特定のLambdaコンテナログ
-docker logs lambda-xxx
+# Go Agent のログ
+docker logs esb-agent
 
-# リアルタイム監視
-docker logs -f lambda-xxx
+# containerd 側の状態確認
+ctr -n esb-runtime containers list
 ```
 
 ## トラブルシューティング
@@ -178,9 +176,9 @@ docker image prune -f
 
 **確認手順**:
 ```bash
-# Orchestrator ログの確認
-docker logs esb-orchestrator
+# Go Agent ログの確認
+docker logs esb-agent
 
-# コンテナ状態の確認
-docker ps -a | grep lambda-
+# containerd 側の状態確認
+ctr -n esb-runtime containers list
 ```

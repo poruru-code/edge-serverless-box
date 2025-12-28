@@ -2,17 +2,17 @@
 
 ## 概要
 
-Gateway はコンテナのホスト情報を **TTL 付き LRU キャッシュ** で保持し、Warm Start 時のレイテンシを削減します。
+Gateway にはコンテナのホスト情報を **TTL 付き LRU キャッシュ** で保持する実装 (`ContainerHostCache`) がありますが、現在の gRPC/Go Agent 経路では未使用です。将来的な最適化やレガシー経路向けのコードとして残しています。
 
 ## 動作原理
 
-### Cold Start（初回リクエスト）
+### Cold Start（初回リクエスト・レガシー経路）
 1. Gateway がキャッシュを確認 → ミス
 2. Manager に問い合わせ → コンテナ起動
 3. 結果をキャッシュに登録（TTL 開始）
 4. Lambda RIE にリクエスト転送
 
-### Warm Start（キャッシュヒット）
+### Warm Start（キャッシュヒット・レガシー経路）
 1. Gateway がキャッシュを確認 → ヒット
 2. **Manager への問い合わせをスキップ**
 3. Lambda RIE にリクエスト転送
@@ -65,5 +65,4 @@ Manager がコンテナを停止した場合、Gateway のキャッシュに古�
 ## 実装ファイル
 
 - `services/gateway/services/container_cache.py` - キャッシュ本体
-- `services/gateway/client.py` - キャッシュ統合
-- `services/gateway/main.py` - 接続失敗時の無効化
+- `services/gateway/client.py` - gRPC 経路移行後のメモ

@@ -1,98 +1,42 @@
-# Orchestrator再起動時のコンテナ復元（Adopt & Sync）
+# Gateway / Agent 再起動時のコンテナ整理
 
 ## 概要
 
-**Orchestrator**コンテナが再起動した際、インメモリ状態（`last_accessed`, `locks`）が消失します。従来の「全削除（Kill-All）」方式では、Orchestrator再起動時に全Lambdaコンテナを強制終了していたため、次のリクエストで全てコールドスタートが発生していました。
+ESB は Go Agent (gRPC) + containerd の構成に移行しており、従来の Python Orchestrator による **Adopt & Sync** は使用しません。現在は **Gateway 起動時のクリーンアップ** と **Janitor のリコンシリエーション** により、再起動後の状態不整合を防ぎます。
 
-**Adopt & Sync**方式では、Orchestrator起動時にDockerデーモンから既存コンテナの状態を同期し、実行中のコンテナは管理下に復帰、停止中のコンテナのみクリーンアップします。これにより、Orchestrator再起動時もサービス断を最小化できます。
+## 現在の方針
 
-> [!NOTE]
-> 本ドキュメントの「実装詳細」は、**Python版 Orchestrator Service** の内部挙動を記述しています。
-> **Go Agent (v2.1)** を使用する場合、Agent自体は **Stateless (Pure Factory)** であり、Gateway の `PoolManager` が Agent の `ListContainers` API を使用して状態同期（Adopt & Sync）を行います。
+### 1. Gateway 起動時のクリーンアップ
+Gateway は起動時に Go Agent へ `ListContainers` を実行し、見つかったコンテナを `DestroyContainer` で削除します。これにより、Gateway のインメモリ状態が失われた状態でも確実に再構築できます。
 
----
+- **利点**: 不整合が起きにくく、運用が安定
+- **トレードオフ**: 再起動直後はコールドスタートが発生
 
-## 実装詳細 (Python Orchestrator)
+### 2. Janitor によるリコンシリエーション
+Gateway の Janitor は周期的に Go Agent の一覧を取得し、Gateway が管理していないコンテナ（孤児）を削除します。
 
-### 1. `sync_with_docker()` メソッド
+- **保護**: `ORPHAN_GRACE_PERIOD_SECONDS` 以内に作成されたコンテナは削除しません
+- **目的**: 起動直後やプロビジョニング中のコンテナを誤削除しないため
 
-Orchestrator起動時（`main.py`の`lifespan`イベント）に実行されます。
+## Agent 再起動時の挙動
 
-**処理フロー:**
-1. Dockerデーモンからラベル `created_by=esb` を持つ全コンテナを取得
-2. コンテナの状態を確認:
-   - **実行中（running）**: `last_accessed` に現在時刻を登録して管理下に復帰
-   - **停止中（exited/paused等）**: `force=True` で削除
-3. 同期結果をログ出力
+Go Agent は containerd 上のコンテナを `ListContainers` で列挙できます。Gateway が稼働中の場合は Janitor がリコンシリエーションを継続するため、必要に応じて削除されます。Gateway も再起動した場合は前述のクリーンアップで全削除されます。
 
-**コード:** [`services/orchestrator/service.py`](../services/orchestrator/service.py)
+## 確認方法
 
----
-
-### 2. 409 Conflictハンドリング
-
-稀なレースコンディション（ロック取得の隙間で他プロセスがコンテナを作成）に対応するため、`ensure_container_running()`に409エラーハンドリングを追加しました。
-
-**処理フロー:**
-1. コンテナ作成を試行（`docker.run_container()`）
-2. `APIError(status_code=409)` が返された場合:
-   - 既存コンテナを取得（`docker.get_container()`）
-   - 処理を続行（エラーにしない）
-3. その他のエラーは再throwして上位でハンドリング
-
-**コード:** [`services/orchestrator/service.py`](../services/orchestrator/service.py)
-
----
-
-## テスト
-
-### ユニットテスト
-
-- `test_sync_with_docker_adopts_running_containers`: 実行中コンテナの復帰
-- `test_sync_with_docker_removes_exited_containers`: 停止中コンテナの削除
-- `test_sync_with_docker_handles_mixed_containers`: 混在ケース
-- `test_ensure_container_running_handles_409_conflict`: 409 Conflictハンドリング
-
-**実行:**
 ```bash
-pytest services/orchestrator/tests/test_service.py -v -k "sync_with_docker or conflict"
+# Agent 再起動
+docker compose restart agent
+
+# Gateway 再起動
+docker compose restart gateway
+
+# コンテナ状態の確認 (containerd)
+ctr -n esb-runtime containers list
 ```
 
-### E2Eテスト
+## 関連実装
 
-実際のOrchestrator再起動シナリオをテスト:
-
-**テストシナリオ:** [`tests/test_e2e.py::TestE2E::test_orchestrator_restart_container_adoption`](../tests/test_e2e.py)
-
-1. Lambda関数を呼び出してコンテナを起動（ウォームアップ）
-2. `docker compose restart orchestrator` でOrchestratorを再起動
-3. 同じLambda関数を再度呼び出し → **ウォームスタートで起動することを確認**
-
-**実行:**
-```bash
-python tests/run_tests.py
-```
-
-**安定性検証結果（3回実行）:**
-- 1回目: 11 passed in 35.64s ✅
-- 2回目: 11 passed in 35.08s ✅
-- 3回目: 11 passed in 35.34s ✅
-
----
-
-## 効果
-
-| 観点       | Before (Kill-All)      | After (Adopt & Sync)   |
-| ---------- | ---------------------- | ---------------------- |
-| **可用性** | 再起動時に全サービス断 | 実行中コンテナは維持 ✅ |
-| **整合性** | 強引に整合（全削除）   | Dockerと同期して整合 ✅ |
-| **堅牢性** | Conflict未対応         | 自己修復的に動作 ✅     |
-
----
-
-## 参考資料
-
-- TDD実装の詳細: 会話履歴 `72bcba0c-e16d-46c9-96ca-e79836ac5cef`
-- 関連コミット:
-  - `feat: Adopt & Sync方式でSPOF・状態管理問題を解決`
-  - `test: Orchestrator再起動時のコンテナ復元E2Eテストを追加`
+- Gateway 起動時クリーンアップ: `services/gateway/services/pool_manager.py` の `cleanup_all_containers`
+- リコンシリエーション: `services/gateway/services/pool_manager.py` の `reconcile_orphans`
+- Janitor ループ: `services/gateway/services/janitor.py`

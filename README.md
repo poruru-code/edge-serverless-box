@@ -6,20 +6,21 @@
 ### 特徴
 - **True AWS Compatibility**: 実行エンジンに **AWS Lambda Runtime Interface Emulator (RIE)** を採用。クラウド上の Lambda と完全に一致する挙動をローカル環境で保証します。
 - **Integrated Developer Experience (CLI)**: 専用 CLI ツール `esb` を提供。環境構築からホットリロード開発まで、コマンド一つでシームレスな開発体験を提供します。
-- **Production-Ready Architecture**: 外部公開用の `Gateway` と特権を持つ `Orchestrator` を分離したマイクロサービス構成により、セキュリティと耐障害性を実現しています。
+- **Production-Ready Architecture**: 外部公開用の `Gateway` と特権を持つ `Go Agent` を分離したマイクロサービス構成により、セキュリティと耐障害性を実現しています。
 - **Full Stack in a Box**: S3互換ストレージ (RustFS)、DynamoDB互換DB (ScyllaDB)、ログ基盤を同梱しており、`esb up` だけで完全なクラウドネイティブ環境が手に入ります。
-- **Efficient Orchestration**: コンテナオーケストレーション技術により、Lambda関数コンテナをオンデマンドで起動・プーリング。`ReservedConcurrentExecutions` に基づくオートスケーリングと、**Scale-to-Zero (アイドル時自動停止)** によりリソースを最適化します。Gateway 再起動時の状態復元 (**State Sync**) にも対応。
+- **Efficient Orchestration**: コンテナオーケストレーション技術により、Lambda関数コンテナをオンデマンドで起動・プーリング。`ReservedConcurrentExecutions` に基づくオートスケーリングと、**Scale-to-Zero (アイドル時自動停止)** によりリソースを最適化します。Gateway 側の Janitor がアイドルコンテナと孤児コンテナを定期的に整理します。
 
 ### CLI コマンド一覧
 
 | コマンド    | 説明                                                                       | 主なオプション             |
 | ----------- | -------------------------------------------------------------------------- | -------------------------- |
-| `esb init`  | `generator.yml` を対話的に生成します。新規プロジェクト開始時に実行します。 | `--template (-t)`          |
-| `esb build` | `template.yaml` から設定を生成し、Docker イメージをビルドします。          | `--no-cache`, `--dry-run`  |
-| `esb up`    | サービスの起動とインフラのプロビジョニングを一括で行います。               | `--build`, `--detach (-d)` |
-| `esb watch` | ファイル変更を監視し、自動的にリロード・リビルドを実行します。             | -                          |
-| `esb down`  | サービスを停止し、コンテナを削除します。                                   | `--volumes (-v)`           |
-| `esb reset` | 環境を完全に初期化し、DB等のデータも全て削除して再構築します。             | `--yes (-y)`               |
+| `esb init`  | `generator.yml` を対話的に生成します。新規プロジェクト開始時に実行します。         | `--template (-t)`                            |
+| `esb build` | `template.yaml` から設定を生成し、Docker イメージをビルドします。                  | `--no-cache`, `--dry-run`, `--verbose (-v)`  |
+| `esb up`    | サービスの起動とインフラのプロビジョニングを一括で行います（デフォルトでdetach）。 | `--build`, `--wait`                          |
+| `esb watch` | ファイル変更を監視し、自動的にリロード・リビルドを実行します。                     | -                                            |
+| `esb down`  | サービスを停止し、コンテナを削除します。                                           | `--volumes (-v)`                             |
+| `esb reset` | 環境を完全に初期化し、DB等のデータも全て削除して再構築します。                     | `--yes (-y)`, `--rmi`                        |
+| `esb logs`  | サービスログを表示します。                                                       | `--follow (-f)`, `--tail`, `--timestamps`    |
 
 ## アーキテクチャ
 
@@ -28,12 +29,10 @@ flowchart TD
     User([Developer / Client]) -->|HTTPS| Gateway["API Gateway - FastAPI"]
     
     subgraph Core ["Core Services"]
-        Gateway -->|Invoke API| CoreBackends["Orchestrator or Go Agent"]
-        Gateway -->|Proxy Request| LambdaRIE["Lambda RIE ContainerContainer"]
+        Gateway -->|gRPC| Agent["Go Agent (containerd)"]
+        Gateway -->|Proxy Request| LambdaRIE["Lambda RIE Containers"]
         
-        CoreBackends -->|Docker/Containerd| LambdaRIE
-        Orchestrator -->|Provision| ScyllaDB[(ScyllaDB)]
-        Orchestrator -->|Provision| RustFS[(RustFS)]
+        Agent -->|containerd/CNI| LambdaRIE
         
         LambdaRIE -->|AWS SDK| ScyllaDB
         LambdaRIE -->|AWS SDK| RustFS
@@ -53,10 +52,8 @@ flowchart TD
 ```
 
 ### システムコンポーネント
-- **`Gateway`**: API Gateway 互換プロキシ。`routing.yml` に基づき認証・ルーティングを行い、Orchestrator を介して Lambda コンテナをオンデマンドで呼び出します。
-- **`Orchestrator / Go Agent`**: コンテナのライフサイクル管理を担当。
-  - **Python Orchestrator**: Docker Socket を介して Lambda RIE コンテナを動的に管理します。
-  - **Go Agent (v2.1)**: `containerd` を直接操作する高性能エージェント。gRPC 通信により Gateway と高速かつ堅牢に連携します。
+- **`Gateway`**: API Gateway 互換プロキシ。`routing.yml` に基づき認証・ルーティングを行い、Go Agent を介して Lambda コンテナをオンデマンドで呼び出します。
+- **`Go Agent`**: コンテナのライフサイクル管理を担当。`containerd` を直接操作する高性能エージェントで、gRPC 通信により Gateway と高速かつ堅牢に連携します。
 - **`esb CLI`**: SAM テンプレート (`template.yaml`) を **Single Source of Truth** とし、開発を自動化する統合コマンドラインツールです。
 
 ### ファイル構成
@@ -65,7 +62,8 @@ flowchart TD
 ├── docker-compose.yml       # 開発用サービス構成
 ├── services/
 │   ├── gateway/             # API Gateway (FastAPI)
-│   └── orchestrator/             # Container Orchestrator
+│   ├── agent/               # Container Orchestrator (Go Agent)
+│   └── common/              # 共通ライブラリ
 ├── config/                  # 設定ファイル
 ├── tools/
 │   ├── cli/                 # ★ ESB CLI ツール (New)
@@ -213,7 +211,7 @@ esb reset
 | [trace-propagation.md](docs/trace-propagation.md)                             | X-Amzn-Trace-Id トレーシング         |
 | [container-management.md](docs/container-management.md)                       | コンテナ管理とイメージ運用           |
 | [container-cache.md](docs/container-cache.md)                                 | コンテナホストキャッシュ             |
-| [orchestrator-restart-resilience.md](docs/orchestrator-restart-resilience.md) | Orchestrator再起動時の耐障害性       |
+| [orchestrator-restart-resilience.md](docs/orchestrator-restart-resilience.md) | Agent/Gateway再起動時のコンテナ整理  |
 | [network-optimization.md](docs/network-optimization.md)                       | ネットワーク最適化                   |
 | [resilience.md](docs/resilience.md)                                           | システム回復性とサーキットブレーカー |
 | [generator-architecture.md](docs/generator-architecture.md)                   | Generator内部アーキテクチャ          |
@@ -313,7 +311,7 @@ MyTable:
 ### テスト実行
 
 #### E2E (End-to-End) Tests
-E2Eテストは、`esb up` で構築された環境（Orchestrator が Docker Socket を介して Lambda を動的に管理）に対して実行されます。
+E2Eテストは、`esb up` で構築された環境（Go Agent が containerd を介して Lambda を動的に管理）に対して実行されます。
 
 ```bash
 # 環境を起動した状態で実行

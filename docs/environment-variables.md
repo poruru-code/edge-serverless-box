@@ -47,7 +47,7 @@ cp .env.example .env
 | `LAMBDA_NETWORK` | Lambda コンテナが接続する内部ネットワーク名 | `onpre-internal-network` | Gateway, Go Agent, docker-compose |
 | `EXTERNAL_NETWORK` | 外部公開用ネットワーク名 | `onpre-external` | docker-compose |
 | `CONTAINERS_NETWORK` | Gateway が管理するコンテナのネットワーク（`LAMBDA_NETWORK` と同義） | `onpre-internal-network` | Gateway |
-| `GATEWAY_INTERNAL_URL` | Lambda コンテナから見た Gateway の URL | `https://esb-gateway` | Gateway |
+| `GATEWAY_INTERNAL_URL` | Lambda コンテナから見た Gateway の URL | `https://10.88.0.1:443` | Gateway |
 
 ---
 
@@ -57,7 +57,7 @@ cp .env.example .env
 
 | 変数名 | デフォルト値 | 説明 | 使用コンポーネント |
 |--------|--------------|------|--------------------|
-| `GATEWAY_PORT` | `443` | Gateway の公開ポート（HTTPS） | docker-compose |
+| `GATEWAY_PORT` | `443` | テスト用 Gateway 公開ポート（HTTPS） | tests |
 | `RUSTFS_API_PORT` | `9000` | RustFS S3 API ポート | docker-compose |
 | `RUSTFS_CONSOLE_PORT` | `9001` | RustFS 管理コンソールポート | docker-compose |
 | `SCYLLADB_PORT` | `8001` | ScyllaDB Alternator API ポート | docker-compose |
@@ -106,8 +106,8 @@ cp .env.example .env
 |--------|--------------|------|
 | `DEFAULT_MAX_CAPACITY` | `1` | デフォルト最大容量 |
 | `DEFAULT_MIN_CAPACITY` | `0` | デフォルト最小容量 |
-| `POOL_ACQUIRE_TIMEOUT` | `30.0` | ワーカー取得タイムアウト（秒） |
-| `HEARTBEAT_INTERVAL` | `30` | Heartbeat 送信間隔（秒） |
+| `POOL_ACQUIRE_TIMEOUT` | `30.0` | ワーカー取得タイムアウト（秒）。`docker-compose.yml` では `5.0` をデフォルト指定 |
+| `HEARTBEAT_INTERVAL` | `30` | Janitor の巡回間隔（秒） |
 | `GATEWAY_IDLE_TIMEOUT_SECONDS` | `300` | Gateway 側アイドルタイムアウト（秒） |
 | `ORPHAN_GRACE_PERIOD_SECONDS` | `60` | 孤児コンテナ削除の猶予時間（秒） |
 
@@ -115,10 +115,14 @@ cp .env.example .env
 
 | 変数名 | デフォルト値 | 説明 |
 |--------|--------------|------|
-| `USE_GRPC_AGENT` | `false` | Go Agent を gRPC 経由で使用するか（本番環境では `true` 推奨） |
-| `AGENT_GRPC_ADDRESS` | `esb-agent:50051` | Go Agent の gRPC アドレス |
+| `USE_GRPC_AGENT` | `false` | **現在の Gateway 実装では常に gRPC Agent を使用**（値は参照されません） |
+| `AGENT_GRPC_ADDRESS` | `esb-agent:50051` | Go Agent の gRPC アドレス（`docker-compose.yml` では `localhost:50051`） |
 | `AGENT_RUNTIME` | `docker` | Agent のランタイム (`docker` または `containerd`) |
 | `PORT` | `50051` | Go Agent の gRPC ポート |
+| `CONTAINER_REGISTRY` | `""` | 取得/プッシュ先のコンテナレジストリ。設定時は `{registry}/{function_name}:latest` を使用 |
+| `CNI_CONF_DIR` | `/etc/cni/net.d` | containerd 用 CNI 設定ディレクトリ |
+| `CNI_CONF_FILE` | `/etc/cni/net.d/10-esb.conflist` | containerd 用 CNI 設定ファイル |
+| `CNI_BIN_DIR` | `/opt/cni/bin` | containerd 用 CNI バイナリディレクトリ |
 
 ### ストレージ設定
 
@@ -163,7 +167,7 @@ cp .env.example .env
 - `RUSTFS_SECRET_KEY`
 
 **オプション（頻繁に変更）**:
-- `USE_GRPC_AGENT`
+- `USE_GRPC_AGENT` (現在は無視)
 - `AGENT_GRPC_ADDRESS`
 - `LOG_LEVEL`
 - `LAMBDA_INVOKE_TIMEOUT`
@@ -174,12 +178,16 @@ cp .env.example .env
 ### Go Agent (services/agent)
 
 **必須**:
-- `CONTAINERS_NETWORK`
+- なし（`AGENT_RUNTIME=docker` の場合は `CONTAINERS_NETWORK` が必要）
 
 **オプション**:
 - `LOG_LEVEL`
 - `PORT`
-- `AGENT_RUNTIME` (将来の containerd 対応用)
+- `AGENT_RUNTIME`
+- `CONTAINER_REGISTRY`
+- `CNI_CONF_DIR`
+- `CNI_CONF_FILE`
+- `CNI_BIN_DIR`
 
 ### RustFS (S3 互換ストレージ)
 
@@ -270,17 +278,16 @@ cp .env.example .env
 
 ### Go Agent との通信エラー
 
-**原因**: `USE_GRPC_AGENT` が `false` または `AGENT_GRPC_ADDRESS` が不正です。
+**原因**: `AGENT_GRPC_ADDRESS` が不正、または Go Agent が起動していません。
 
 **解決方法**:
-1. `USE_GRPC_AGENT=true` に設定
-2. `AGENT_GRPC_ADDRESS=esb-agent:50051` を確認
-3. Go Agent コンテナが起動していることを確認
+1. `AGENT_GRPC_ADDRESS` を環境に合わせて確認（`docker-compose.yml` では `localhost:50051`）
+2. Go Agent コンテナが起動していることを確認
 
 ---
 
 ## 関連ドキュメント
 
-- [`.env.example`](file:///d:/GitHub/edge-serverless-box/.env.example) - 環境変数テンプレート
-- [`services/gateway/config.py`](file:///d:/GitHub/edge-serverless-box/services/gateway/config.py) - Gateway 設定定義
-- [`docker-compose.yml`](file:///d:/GitHub/edge-serverless-box/docker-compose.yml) - サービス構成定義
+- [`.env.example`](../.env.example) - 環境変数テンプレート
+- [`services/gateway/config.py`](../services/gateway/config.py) - Gateway 設定定義
+- [`docker-compose.yml`](../docker-compose.yml) - サービス構成定義
