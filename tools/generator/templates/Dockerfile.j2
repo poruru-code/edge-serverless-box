@@ -4,7 +4,7 @@
 # FunctionName: {{ name }}
 
 
-FROM esb-lambda-base:latest
+FROM {{ base_image }}
 
 # ESB Runtime
 COPY sitecustomize.py /opt/python/sitecustomize.py

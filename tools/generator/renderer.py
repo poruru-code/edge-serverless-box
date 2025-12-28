@@ -5,11 +5,11 @@ SAMテンプレートから抽出した関数情報をもとに、
 DockerfileとFunctions.ymlを生成します。
 """
 
+import os
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
-
 
 
 def render_dockerfile(
@@ -36,10 +36,18 @@ def render_dockerfile(
 
     # Layerの分離 (Zip vs Directory)
     layers = func_config.get("layers", [])
-    
+
+    # Phase 5 Step 0: CONTAINER_REGISTRY サポート
+    registry = os.getenv("CONTAINER_REGISTRY")
+    if registry:
+        base_image = f"{registry}/esb-lambda-base:latest"
+    else:
+        base_image = "esb-lambda-base:latest"
+
     context = {
         "name": func_config.get("name", "unknown"),
         "python_version": python_version,
+        "base_image": base_image,
         "sitecustomize_source": docker_config.get(
             "sitecustomize_source", "runtime/sitecustomize.py"
         ),

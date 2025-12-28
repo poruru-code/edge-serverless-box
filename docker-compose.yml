@@ -75,6 +75,27 @@ services:
   # Fluent Bit は廃止されました。ログは各サービスから VictoriaLogs へ直接送信されます。
 
   # ============================================
+  # Container Registry (Local)
+  # ============================================
+  registry:
+    image: registry:2
+    container_name: esb-registry
+    ports:
+      - "5000:5000" # Registry API (ホストからのPush用)
+    volumes:
+      - registry_data:/var/lib/registry
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-Y", "off", "--spider", "http://127.0.0.1:5000/v2/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - external_network # ホストからのアクセス用
+      - internal_network # Agent用 (Step 1 containerd移行時に使用)
+
+  # ============================================
   # VictoriaLogs
   # ============================================
   victorialogs:
@@ -176,6 +197,13 @@ services:
       - CONTAINERS_NETWORK=${LAMBDA_NETWORK?LAMBDA_NETWORK is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PORT=50051
+      # ⚠️ IMPORTANT: Step 1 (containerd移行) では 'esb-registry:5000' に変更必須
+      # Docker Runtime (Host共有): localhost:5000
+      # Containerd Runtime (Container間通信): esb-registry:5000
+      - CONTAINER_REGISTRY=localhost:5000
+    depends_on:
+      registry:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
@@ -183,6 +211,7 @@ volumes:
   rustfs_data:
   victorialogs_data:
   esb_cni_data:
+  registry_data:
 
 
 networks:

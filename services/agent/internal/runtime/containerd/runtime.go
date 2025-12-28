@@ -3,6 +3,7 @@ package containerd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,14 @@ func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runti
 	// Phase 4-1: Factory behavior. Always create a new container.
 	image := req.Image
 	if image == "" {
-		image = fmt.Sprintf("%s:latest", req.FunctionName)
+		// Phase 5 Step 0: Support container registry
+		registry := os.Getenv("CONTAINER_REGISTRY")
+		if registry != "" {
+			image = fmt.Sprintf("%s/%s:latest", registry, req.FunctionName)
+		} else {
+			// Fallback to local image (backward compatibility)
+			image = fmt.Sprintf("%s:latest", req.FunctionName)
+		}
 	}
 
 	containerID := fmt.Sprintf("%s%s-%d", runtime.ContainerNamePrefix, req.FunctionName, time.Now().UnixNano())

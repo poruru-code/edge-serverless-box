@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -43,12 +44,30 @@ func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runti
 	// Pool management is handled by the Gateway.
 	// Mutex removed to allow parallel provisioning.
 
-	image := req.Image
-	if image == "" {
-		image = fmt.Sprintf("%s:latest", req.FunctionName)
+	imageName := req.Image
+	if imageName == "" {
+		// Phase 5 Step 0: Support container registry
+		registry := os.Getenv("CONTAINER_REGISTRY")
+		if registry != "" {
+			imageName = fmt.Sprintf("%s/%s:latest", registry, req.FunctionName)
+		} else {
+			// Fallback to local image (backward compatibility)
+			imageName = fmt.Sprintf("%s:latest", req.FunctionName)
+		}
 	}
 
 	containerName := fmt.Sprintf("%s%s-%d", runtime.ContainerNamePrefix, req.FunctionName, time.Now().UnixNano())
+
+	// Phase 5 Step 0: Pull image from registry if not present
+	fmt.Printf("[Agent] Pulling image %s...\n", imageName)
+	pullReader, err := r.client.ImagePull(ctx, imageName, image.PullOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull image %s: %w", imageName, err)
+	}
+	defer pullReader.Close()
+
+	// Wait for pull to complete
+	_, _ = io.Copy(io.Discard, pullReader)
 
 	envList := make([]string, 0, len(req.Env))
 	for k, v := range req.Env {
@@ -56,7 +75,7 @@ func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runti
 	}
 
 	config := &container.Config{
-		Image: image,
+		Image: imageName,
 		Env:   envList,
 		Labels: map[string]string{
 			runtime.LabelFunctionName: req.FunctionName,
