@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 
 from tools.cli.core import logging
-from tools.cli.core.cert import generate_ssl_certificate
+from tools.cli.core.cert import ensure_certs
 import time
 import requests
 
@@ -39,7 +39,7 @@ def wait_for_gateway(timeout=60):
 
 def run(args):
     # 0. SSL証明書の準備
-    generate_ssl_certificate()
+    ensure_certs(PROJECT_ROOT / "certs")
 
     # .env.test の読み込み (run_tests.py と同様)
     env_file = PROJECT_ROOT / "tests" / ".env.test"
@@ -53,7 +53,7 @@ def run(args):
         try:
             with open(config_path, "r") as f:
                 config = yaml.safe_load(f)
-            
+
             paths = config.get("paths", {})
             if "functions_yml" in paths:
                 os.environ["GATEWAY_FUNCTIONS_YML"] = str(paths["functions_yml"])

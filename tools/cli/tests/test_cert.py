@@ -1,49 +1,50 @@
-from unittest.mock import patch
 import pytest
-
-# Module to be tested (not implemented yet)
-try:
-    from tools.cli.core import cert
-except ImportError:
-    cert = None
-
+from cryptography import x509
+from tools.cli.core import cert
 
 class TestCertGeneration:
     @pytest.fixture
-    def mock_project_root(self, tmp_path):
-        """Mock PROJECT_ROOT to use a temp directory"""
-        with patch("tools.cli.core.cert.PROJECT_ROOT", tmp_path):
-            yield tmp_path
+    def cert_dir(self, tmp_path):
+        """Mock directory for certificates"""
+        return tmp_path / "certs"
 
-    def test_generate_ssl_certificate_creates_files(self, mock_project_root):
-        """Test that certificates are generated in the correct location"""
-        if cert is None:
-            pytest.fail("tools.cli.core.cert module not found")
+    def test_ensure_certs_creates_all_files(self, cert_dir):
+        """Root CAとサーバー証明書が生成されることをテスト"""
+        cert.ensure_certs(cert_dir)
 
-        # Patch the logger instance used in the module
-        with patch("tools.cli.core.cert.logger") as mock_logger:
-            cert.generate_ssl_certificate()
+        assert (cert_dir / "rootCA.crt").exists()
+        assert (cert_dir / "rootCA.key").exists()
+        assert (cert_dir / "server.crt").exists()
+        assert (cert_dir / "server.key").exists()
 
-            certs_dir = mock_project_root / "certs"
-            assert (certs_dir / "server.crt").exists()
-            assert (certs_dir / "server.key").exists()
+        # 証明書の内容を確認
+        with open(cert_dir / "server.crt", "rb") as f:
+            server_cert = x509.load_pem_x509_certificate(f.read())
+        with open(cert_dir / "rootCA.crt", "rb") as f:
+            ca_cert = x509.load_pem_x509_certificate(f.read())
+            
+        # 署名関係を確認
+        assert server_cert.issuer == ca_cert.subject
+        
+        # SANの確認
+        san = server_cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        dns_names = san.get_values_for_type(x509.DNSName)
+        assert "localhost" in dns_names
+        assert "esb-registry" in dns_names
 
-            # Verify logging was called
-            mock_logger.info.assert_called()
-
-    def test_generate_ssl_certificate_skips_if_exists(self, mock_project_root):
-        """Test that generation is skipped if files already exist"""
-        if cert is None:
-            pytest.fail("tools.cli.core.cert module not found")
-
-        certs_dir = mock_project_root / "certs"
-        certs_dir.mkdir()
-        (certs_dir / "server.crt").touch()
-        (certs_dir / "server.key").touch()
-
-        with patch("tools.cli.core.cert.logger") as mock_logger:
-            # First call (already exists)
-            cert.generate_ssl_certificate()
-
-            # Check modification time or logging to ensure it skipped
-            mock_logger.debug.assert_called_with("Using existing SSL certificates")
+    def test_ensure_certs_skips_ca_if_exists(self, cert_dir):
+        """Root CAが既に存在する場合、再生成されないことをテスト"""
+        cert_dir.mkdir(parents=True)
+        ca_cert_path, ca_key_path = cert.generate_root_ca(cert_dir)
+        
+        import os
+        orig_mtime = os.path.getmtime(ca_cert_path)
+        
+        # 少し待機してから再実行
+        import time
+        time.sleep(0.1)
+        
+        cert.ensure_certs(cert_dir)
+        
+        # mtimeが変わっていない＝再生成されていない
+        assert os.path.getmtime(ca_cert_path) == orig_mtime

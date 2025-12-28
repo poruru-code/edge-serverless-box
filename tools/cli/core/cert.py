@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 import socket
 from datetime import datetime, timedelta, timezone
 
@@ -8,11 +9,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 import ipaddress
 
-from tools.cli.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
 SSL_CERT_VALIDITY_DAYS = 365
+SSL_CA_VALIDITY_DAYS = 3650
 SSL_KEY_SIZE = 4096
 
 
@@ -28,20 +29,78 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def generate_ssl_certificate():
-    """自己署名SSL証明書を生成"""
-    certs_dir = PROJECT_ROOT / "certs"
-    cert_file = certs_dir / "server.crt"
-    key_file = certs_dir / "server.key"
+def generate_root_ca(cert_dir: Path):
+    """Root CAを生成"""
+    ca_key_file = cert_dir / "rootCA.key"
+    ca_cert_file = cert_dir / "rootCA.crt"
 
-    if cert_file.exists() and key_file.exists():
-        logger.debug("Using existing SSL certificates")
-        return
+    if ca_key_file.exists() and ca_cert_file.exists():
+        logger.debug("Using existing Root CA")
+        return ca_cert_file, ca_key_file
 
-    logger.info("Generating self-signed SSL certificate with SAN...")
+    logger.info("Generating Private Root CA...")
 
-    # RSA秘密鍵を生成
-    private_key = rsa.generate_private_key(
+    # Root CAの秘密鍵を生成
+    ca_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=SSL_KEY_SIZE,
+    )
+
+    # Root CAの証明書を生成
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Edge Serverless Box"),
+        x509.NameAttribute(NameOID.COMMON_NAME, "ESB Development Root CA"),
+    ])
+
+    ca_cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=SSL_CA_VALIDITY_DAYS))
+        .add_extension(
+            x509.BasicConstraints(ca=True, path_length=None),
+            critical=True,
+        )
+        .sign(ca_key, hashes.SHA256())
+    )
+
+    cert_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(ca_key_file, "wb") as f:
+        f.write(ca_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        ))
+
+    with open(ca_cert_file, "wb") as f:
+        f.write(ca_cert.public_bytes(serialization.Encoding.PEM))
+
+    logger.info(f"Root CA saved to: {ca_cert_file}")
+    return ca_cert_file, ca_key_file
+
+
+def generate_server_cert(cert_dir: Path, ca_key_path: Path, ca_cert_path: Path):
+    """CA署名付きサーバー証明書を生成"""
+    server_key_file = cert_dir / "server.key"
+    server_cert_file = cert_dir / "server.crt"
+
+    logger.info("Generating Server Certificate signed by Private CA...")
+
+    # CA鍵と証明書を読み込む
+    with open(ca_key_path, "rb") as f:
+        ca_key = serialization.load_pem_private_key(f.read(), password=None)
+    with open(ca_cert_path, "rb") as f:
+        ca_cert = x509.load_pem_x509_certificate(f.read())
+
+    # サーバー秘密鍵を生成
+    server_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=SSL_KEY_SIZE,
     )
@@ -53,29 +112,32 @@ def generate_ssl_certificate():
     san_list = [
         x509.DNSName("localhost"),
         x509.DNSName(hostname),
+        x509.DNSName("esb-registry"),
+        x509.DNSName("esb-gateway"),
+        x509.DNSName("host.docker.internal"),
         x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
     ]
 
-    # ローカルIPが127.0.0.1でなければ追加
     if local_ip != "127.0.0.1":
-        san_list.append(x509.IPAddress(ipaddress.IPv4Address(local_ip)))
+        try:
+            san_list.append(x509.IPAddress(ipaddress.IPv4Address(local_ip)))
+        except ValueError:
+            pass
 
     # 証明書を構築
-    subject = issuer = x509.Name(
-        [
-            x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
-            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
-            x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Development"),
-            x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
-        ]
-    )
+    subject = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, "JP"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tokyo"),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, "Minato"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Edge Serverless Box"),
+        x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+    ])
 
-    cert = (
+    builder = (
         x509.CertificateBuilder()
         .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(private_key.public_key())
+        .issuer_name(ca_cert.subject)
+        .public_key(server_key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.now(timezone.utc))
         .not_valid_after(datetime.now(timezone.utc) + timedelta(days=SSL_CERT_VALIDITY_DAYS))
@@ -91,24 +153,29 @@ def generate_ssl_certificate():
             x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
             critical=False,
         )
-        .sign(private_key, hashes.SHA256())
     )
 
-    # ディレクトリ作成
-    certs_dir.mkdir(parents=True, exist_ok=True)
+    cert = builder.sign(ca_key, hashes.SHA256())
 
-    # 証明書を保存
-    with open(cert_file, "wb") as f:
+    with open(server_key_file, "wb") as f:
+        f.write(server_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        ))
+
+    with open(server_cert_file, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
-    # 秘密鍵を保存
-    with open(key_file, "wb") as f:
-        f.write(
-            private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-        )
+    logger.info(f"Server certificate saved to: {server_cert_file}")
+    return server_cert_file, server_key_file
 
-    logger.info(f"Certificate saved to: {cert_file}")
+
+def ensure_certs(cert_dir: Path = None):
+    """証明書一式を準備する"""
+    from tools.cli.config import DEFAULT_CERT_DIR
+    if cert_dir is None:
+        cert_dir = DEFAULT_CERT_DIR
+
+    ca_cert, ca_key = generate_root_ca(cert_dir)
+    generate_server_cert(cert_dir, ca_key, ca_cert)

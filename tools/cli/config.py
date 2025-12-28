@@ -20,6 +20,7 @@ PROJECT_ROOT = find_project_root()
 TOOLS_DIR = PROJECT_ROOT / "tools"
 GENERATOR_DIR = TOOLS_DIR / "generator"
 PROVISIONER_DIR = TOOLS_DIR / "provisioner"
+DEFAULT_CERT_DIR = Path.home() / ".esb" / "certs"
 
 
 def _resolve_template_yaml() -> Path:
@@ -50,7 +51,7 @@ DEFAULT_FUNCTIONS_YML = E2E_DIR / "config" / "functions.yml"
 def set_template_yaml(template_path: str) -> None:
     """CLI引数からテンプレートパスを設定する（最優先）"""
     global TEMPLATE_YAML, E2E_DIR, DEFAULT_ROUTING_YML, DEFAULT_FUNCTIONS_YML
-    
+
     # WSL対応: /mnt/C/path... -> /mnt/c/path... に正規化
     parts = template_path.split("/")
     if len(parts) > 3 and parts[1] == "mnt" and len(parts[2]) == 1 and parts[2].isupper():

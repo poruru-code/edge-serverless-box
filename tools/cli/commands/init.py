@@ -5,7 +5,8 @@ import yaml
 from pathlib import Path
 import questionary
 from tools.cli import config as cli_config
-from tools.generator import main as generator_main
+from tools.cli.core.cert import ensure_certs
+from tools.cli.core.trust_store import install_root_ca
 
 def run(args):
     """
@@ -135,3 +136,14 @@ def run(args):
     except Exception as e:
         print(f"❌ Failed to save config: {e}")
         sys.exit(1)
+
+    # 5. SSL証明書の準備とOS信頼登録
+    print("\n🔐 Preparing SSL certificates and trust store...")
+    try:
+        from tools.cli.config import DEFAULT_CERT_DIR
+        ensure_certs(DEFAULT_CERT_DIR)
+        install_root_ca(DEFAULT_CERT_DIR / "rootCA.crt")
+        print("✅ Root CA installed successfully.")
+    except Exception as e:
+        print(f"⚠️ Failed to prepare certificates/trust store: {e}")
+        print("You may need to run this command with administrative privileges or manually install the CA cert.")

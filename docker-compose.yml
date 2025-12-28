@@ -84,8 +84,13 @@ services:
       - "5000:5000" # Registry API (ホストからのPush用)
     volumes:
       - registry_data:/var/lib/registry
+      - ${ESB_CERT_DIR:-~/.esb/certs}:/certs:ro
+    environment:
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+      REGISTRY_HTTP_TLS_CERTIFICATE: /certs/server.crt
+      REGISTRY_HTTP_TLS_KEY: /certs/server.key
     healthcheck:
-      test: ["CMD", "wget", "-q", "-Y", "off", "--spider", "http://127.0.0.1:5000/v2/"]
+      test: ["CMD", "wget", "-q", "-Y", "off", "--spider", "--no-check-certificate", "https://127.0.0.1:5000/v2/"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -193,6 +198,7 @@ services:
       - /run/containerd/containerd.sock:/run/containerd/containerd.sock
       - ./services/agent/config/cni:/etc/cni/net.d
       - esb_cni_data:/var/lib/cni
+      - ${ESB_CERT_DIR:-~/.esb/certs}/rootCA.crt:/usr/local/share/ca-certificates/esb-rootCA.crt:ro
     environment:
       - CONTAINERS_NETWORK=${LAMBDA_NETWORK?LAMBDA_NETWORK is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -204,6 +210,8 @@ services:
     depends_on:
       registry:
         condition: service_healthy
+    command: >
+      sh -c "update-ca-certificates && /app/agent"
     restart: unless-stopped
 
 volumes:

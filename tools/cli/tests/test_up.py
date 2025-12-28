@@ -14,7 +14,7 @@ class TestUpCommand:
 
     @patch("tools.cli.commands.up.subprocess.check_call")
     @patch("tools.cli.commands.up.provisioner.main")
-    @patch("tools.cli.commands.up.generate_ssl_certificate")
+    @patch("tools.cli.commands.up.ensure_certs")
     def test_run_generates_certificates(self, mock_cert, mock_prov, mock_sub, mock_args):
         """Test that SSL certificates are generated before bringing up containers"""
         # Mocking generate_ssl_certificate locally in the up module context
@@ -33,7 +33,7 @@ class TestUpCommand:
 
     @patch("tools.cli.commands.up.subprocess.check_call")
     @patch("tools.cli.commands.up.provisioner.main")
-    @patch("tools.cli.commands.up.generate_ssl_certificate")  # Expecting import in up.py
+    @patch("tools.cli.commands.up.ensure_certs")  # Expecting import in up.py
     @patch("requests.get")
     def test_run_waits_for_gateway_if_wait_arg_is_true(
         self, mock_get, mock_cert, mock_prov, mock_sub, mock_args
