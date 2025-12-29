@@ -28,3 +28,14 @@ jobs:
 
       - name: Run unit tests
         run: uv run python tests/run_tests.py --unit-only
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/agent/go.mod
+          cache: true
+          cache-dependency-path: services/agent/go.sum
+
+      - name: Run Go unit tests
+        run: go test ./...
+        working-directory: services/agent
