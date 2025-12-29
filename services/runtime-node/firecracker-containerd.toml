@@ -1,0 +1,16 @@
+version = 2
+disabled_plugins = ["io.containerd.grpc.v1.cri"]
+root = "/var/lib/containerd"
+state = "/run/containerd"
+
+[grpc]
+  address = "/run/containerd/containerd.sock"
+
+[plugins]
+  [plugins."io.containerd.snapshotter.v1.devmapper"]
+    pool_name = "fc-dev-pool2"
+    base_image_size = "10GB"
+    root_path = "/var/lib/containerd/devmapper2"
+
+[debug]
+  level = "debug"

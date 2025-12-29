@@ -1,0 +1,54 @@
+diff --git a/runtime/service.go b/runtime/service.go
+index 979e04b..1b04ae9 100644
+--- a/runtime/service.go
++++ b/runtime/service.go
+@@ -18,6 +18,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"io"
+ 	"math"
+ 	"net"
+ 	"os"
+@@ -25,7 +26,6 @@ import (
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+-	"syscall"
+ 	"time"
+ 
+ 	// disable gosec check for math/rand. We just need a random starting
+@@ -964,24 +964,19 @@ func (s *service) buildVMConfiguration(req *proto.CreateVMRequest) (*firecracker
+ 	if req.LogFifoPath != "" {
+ 		logPath = req.LogFifoPath
+ 	}
+-	err = syscall.Mkfifo(logPath, 0700)
+-	if err != nil {
+-		return nil, err
+-	}
+-
+-	metricsPath := s.shimDir.FirecrackerMetricsFifoPath()
+-	if req.MetricsFifoPath != "" {
+-		metricsPath = req.MetricsFifoPath
+-	}
+-	err = syscall.Mkfifo(metricsPath, 0700)
+-	if err != nil {
+-		return nil, err
+-	}
+ 
+ 	// The Config struct has LogFifo and MetricsFifo, but they will be deprecated since
+ 	// Firecracker doesn't have the corresponding fields anymore.
+ 	cfg.LogPath = logPath
+-	cfg.MetricsPath = metricsPath
++	cfg.LogFifo = logPath
++	// Keep a reader attached so Firecracker can open the fifo without ENXIO.
++	cfg.FifoLogWriter = io.Discard
++
++	if req.MetricsFifoPath != "" {
++		metricsPath := req.MetricsFifoPath
++		cfg.MetricsPath = metricsPath
++		cfg.MetricsFifo = metricsPath
++	}
+ 
+ 	if req.JailerConfig != nil {
+ 		cfg.NetNS = req.JailerConfig.NetNS

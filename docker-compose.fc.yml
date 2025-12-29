@@ -3,11 +3,23 @@
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.fc.yml docker compose up -d
 #
 # Note:
-# - This file only switches the containerd runtime name used by the agent.
-# - The firecracker runtime/shim must be installed in runtime-node beforehand.
+# - runtime-node は firecracker-containerd を起動する想定。
+# - firecracker runtime/shim と設定は runtime-node イメージに含める。
 
 services:
+  runtime-node:
+    environment:
+      - CONTAINERD_BIN=/usr/local/bin/firecracker-containerd
+      - CONTAINERD_CONFIG=/etc/firecracker-containerd/config.toml
+      - DEVMAPPER_POOL=fc-dev-pool2
+      - DEVMAPPER_DIR=/var/lib/containerd/devmapper2
+      - DEVMAPPER_DATA_SIZE=10G
+      - DEVMAPPER_META_SIZE=2G
+      - DEVMAPPER_UDEV=1
+      - VHOST_VSOCK_REQUIRED=1
+    volumes:
+      - /dev:/dev
   agent:
     environment:
       - AGENT_RUNTIME=containerd
-      - CONTAINERD_RUNTIME=io.containerd.firecracker.v2
+      - CONTAINERD_RUNTIME=aws.firecracker

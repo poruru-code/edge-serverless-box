@@ -118,24 +118,41 @@ flowchart LR
 - **Lambda worker は microVM**（1 function = 1 microVM）に変更。
 - **Gateway/Agent/外部ネットワークの関係は維持**（Phase B の外形は崩さない）。
 - **sitecustomize / boto3 hook / Trace 伝播**は維持。
-- **worker への Invoke は `worker.ip:8080` を維持**。
+- **worker への Invoke は最終的に `worker.ip:8080` を維持**（初期は L7 経由で迂回）。
 
 ### Runtime Supervisor の責務（Phase C 固定）
 - **Runtime API 互換 + Invoke 入口(8080) + ログ/メトリクス中継**までを担う。
 - 画像 pull / CNI / DNAT 管理は **runtime-node/agent 側**に残す（責務を広げない）。
 
-### Phase C 構成図（想定）
+### Phase C 構成図（Control/Compute 分離・L7 先行）
+
+#### Compute VM に入るもの（想定）
+- **runtime-node**: firecracker-containerd / shim / jailer / devmapper / CNI / iptables
+- **agent**: gRPC API、CNI add/del、runtime 切替 (`CONTAINERD_RUNTIME`)、L7 代理（暫定）
+- **local-proxy (HAProxy)**: DNAT 先の TCP プロキシ
+- **FC assets**: kernel/rootfs/snapshots（`/var/lib/firecracker-containerd/runtime`）
+
+#### 通信方針（L7 → L3 移行）
+- **L7 先行（当面）**: Gateway → Agent（gRPC）→ Supervisor への L7 代理で Invoke を成立させる。
+- **L3 移行（最終）**: トンネル/静的ルートで `10.88.0.0/16` を直通にし、`worker.ip:8080` の直アクセスへ復帰する。
 
 ```mermaid
 flowchart LR
-  Client["Client / SDK"] -->|HTTPS :443| HostPorts["Host Ports\n(runtime-node:443, 50051)"]
+  Client["Client / SDK"] -->|HTTPS :443| Gateway
 
-  subgraph DockerWorld["Docker World (no host net)"]
+  subgraph ControlPlane["Control Plane (WSL/Docker)"]
+    Gateway["gateway\n:443"]
+    Registry["esb-registry:5010"]
+    S3["s3-storage:9000/9001"]
+    DB["database:8001"]
+    Victoria["victorialogs:9428"]
+  end
+
+  subgraph ComputePlane["Compute Plane (Hyper-V VM / Linux)"]
     subgraph RuntimeNS["runtime-node NetNS (shared)"]
-      RuntimeNode["runtime-node (privileged)\ncontainerd + firecracker shim\nCNI bridge 10.88.0.0/16\nFC assets (kernel/rootfs/snapshot)"]
-      Gateway["gateway\nnetns=runtime-node\n:443"]
+      RuntimeNode["runtime-node (privileged)\nfirecracker-containerd + shim\nCNI bridge 10.88.0.0/16"]
       Agent["agent\nnetns+pidns=runtime-node\n:50051"]
-
+      LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
       TaskNS["VM task netns\n/proc/<pid>/ns/net"]
       subgraph VM["microVM worker(s)\nCNI IP 10.88.x.x\n:8080"]
         direction TB
@@ -143,63 +160,28 @@ flowchart LR
         Function["Lambda function process\n(Python/Node/etc)"]
         Supervisor --> Function
       end
-      LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
-
-      Gateway <-->|gRPC localhost:50051| Agent
-
-      SockVol[["/run/containerd (shared)\ncontainerd.sock"]]
-      LibVol[["/var/lib/containerd (shared)\ncontent + metadata"]]
-      CniVol[["/var/lib/cni (shared)\nIPAM state"]]
-      CniConf[["/etc/cni/net.d (ro)\nCNI config"]]
-      FcStore[["(optional) FC assets\nkernel/rootfs/snapshots"]]
-
-      Agent --- SockVol
-      RuntimeNode --- SockVol
-      Agent --- LibVol
-      RuntimeNode --- LibVol
-      Agent --- CniVol
-      RuntimeNode --- CniVol
-      Agent --- CniConf
-      RuntimeNode --- CniConf
-      RuntimeNode --- FcStore
+      FcStore[["FC assets\nkernel/rootfs/snapshots"]]
 
       Agent -->|Create/Start VM task| VM
       Agent -->|CNI add/del| TaskNS
       TaskNS -->|Net attached\nIP assigned| VM
-
-      Gateway -->|Invoke\nvm.ip:8080| Supervisor
-      Function -->|Lambda->Gateway\nGATEWAY_INTERNAL_URL\nhttps://10.88.0.1:443| Gateway
+      RuntimeNode --- FcStore
       Function -->|SDK calls / Logs\nDNAT 10.88.0.1:*| LocalProxy
     end
-
-    ExternalNet(("external_network (bridge)\nrequired"))
-    InternalNet(("internal_network (bridge)\noptional"))
-
-    HostPorts --> RuntimeNode
-    RuntimeNode --- ExternalNet
-    RuntimeNode -.->|optional| InternalNet
-
-    Registry["esb-registry:5010"]
-    Victoria["victorialogs:9428"]
-    S3["s3-storage:9000/9001"]
-    DB["database:8001"]
-
-    ExternalNet --- Registry
-    ExternalNet --- Victoria
-    ExternalNet --- S3
-    ExternalNet --- DB
-
-    InternalNet --- Registry
-    InternalNet --- Victoria
-    InternalNet --- S3
-    InternalNet --- DB
-
-    Agent -->|Pull images / rootfs| Registry
-    Gateway -->|"Logs (DNAT 10.88.0.1:9428)"| LocalProxy
-    LocalProxy -->|TCP| Victoria
-    LocalProxy -->|TCP| S3
-    LocalProxy -->|TCP| DB
   end
+
+  Gateway <-->|gRPC| Agent
+  Gateway -->|Invoke (L7 proxy)| Agent
+  Agent -->|Invoke proxy\nHTTP :8080| Supervisor
+
+  Tunnel["L3 tunnel / static route (future)\n10.88.0.0/16"] -.-> RuntimeNode
+  Tunnel -.-> Gateway
+  Gateway -.->|Invoke (future)\nworker.ip:8080| Supervisor
+
+  Agent -->|Pull images / rootfs| Registry
+  LocalProxy -->|TCP| Victoria
+  LocalProxy -->|TCP| S3
+  LocalProxy -->|TCP| DB
 ```
 
 ※補足: Phase C の CNI add/del は **「VM 内部に IP を直接付与」ではなく、tap/bridge が netns に接続される**ことを指す。VM 内の IP 付与は別管理（DHCP/静的）である前提。
@@ -209,7 +191,8 @@ flowchart LR
 | --- | --- | --- |
 | Runtime | runc | firecracker runtime/shim |
 | Worker 実体 | RIE コンテナ | microVM + Runtime Supervisor |
-| 入口 | `worker.ip:8080` | `vm.ip:8080`（維持） |
+| 入口 | `worker.ip:8080` | `vm.ip:8080`（最終維持） |
+| Invoke 経路 | 直接（L3） | **L7 先行 → L3 へ復帰** |
 | CNI/IP | 10.88.x.x (CNI bridge) | 10.88.x.x (維持) |
 | sitecustomize | あり | あり（VM 内へ配置） |
 | registry | `esb-registry:5010` 直指定 | 同じ |
@@ -230,7 +213,8 @@ flowchart LR
 
 - 基本は **Phase B の構成を維持**し、Firecracker 検証は compose override で切り替える。
 - 例: `COMPOSE_FILE=docker-compose.yml:docker-compose.fc.yml docker compose up -d`
-- `docker-compose.fc.yml` で `CONTAINERD_RUNTIME=io.containerd.firecracker.v2` を指定し、containerd の runtime のみを差し替える。
+- `docker-compose.fc.yml` で `CONTAINERD_RUNTIME=aws.firecracker` を指定し、containerd の runtime のみを差し替える。
+- runtime-node 側は `CONTAINERD_BIN=/usr/local/bin/firecracker-containerd` と `CONTAINERD_CONFIG=/etc/firecracker-containerd/config.toml` を指定して切り替える。
 
 ---
 
@@ -242,7 +226,36 @@ flowchart LR
 
 ### C-1: runtime-node 内で firecracker runtime を動作確認
 - containerd の runtime 設定に firecracker を追加。
+- runtime-node へ firecracker-containerd / shim / firecracker / jailer と runtime 設定を導入。
 - `ctr` で firecracker runtime による起動が通ることを確認。
+  - `/etc/containerd/firecracker-runtime.json` を使用（kernel/rootfs は `/var/lib/firecracker-containerd/runtime`）
+
+### C-1.5: L7 先行で Invoke 経路を成立
+- Gateway → Agent（gRPC）→ Supervisor への L7 代理で Invoke を通す。
+- `worker.ip:8080` への直アクセスは **一時停止**（L3 未整備のため）。
+
+#### L7 Invoke 仕様（暫定）
+- **Gateway → Agent へ gRPC で Invoke を委譲**し、Agent が `http://worker.ip:8080` へ代理送信する。
+- **RIE 互換パス**は維持（`/2015-03-31/functions/function/invocations`）。
+- **Trace 伝播**: `X-Amzn-Trace-Id` と `X-Amz-Client-Context` を Gateway → Agent → Worker で透過。
+- **成功/失敗判定**は Gateway 既存ロジックを踏襲（`X-Amz-Function-Error` や 5xx を基準）。
+
+**想定 API（Agent 側, gRPC）**
+- `InvokeWorkerRequest`:
+  - `worker_id`（または `ip_address` + `port`）
+  - `function_name`
+  - `payload`（bytes）
+  - `timeout_ms`
+  - `headers`（任意、Trace 伝播用）
+- `InvokeWorkerResponse`:
+  - `status_code`
+  - `headers`
+  - `body`（bytes）
+  - `function_error`（`X-Amz-Function-Error`）
+
+### C-1.6: L3 へ移行（`worker.ip:8080` へ復帰）
+- トンネルまたは静的ルートで `10.88.0.0/16` を Compute VM に通す。
+- Gateway から `worker.ip:8080` を直接叩ける状態に戻す。
 
 ### C-2: microVM 内 Runtime Supervisor を実装
 - Runtime API 互換の **Supervisor** を用意（init/invoke/shutdown）。
