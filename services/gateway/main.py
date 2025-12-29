@@ -7,16 +7,19 @@ requests to Lambda RIE containers based on routing.yml.
 
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from fastapi import FastAPI, Request, HTTPException, Header, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, Header, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime, timezone
 import asyncio
 import httpx
 import logging
 import json
+import secrets
 from .config import config
 from .core.security import create_access_token
 from .core.utils import parse_lambda_response
@@ -75,7 +78,7 @@ async def lifespan(app: FastAPI):
 
     # Load initial configs
     function_registry.load_functions_config()
-    route_matcher.load_routing_config()
+    routing_config = route_matcher.load_routing_config()
 
     # === Auto-Scaling: Pool Initialization ===
     def config_loader(function_name: str):
@@ -147,6 +150,9 @@ async def lifespan(app: FastAPI):
     app.state.lambda_invoker = lambda_invoker
     app.state.event_builder = V1ProxyEventBuilder()
     app.state.pool_manager = pool_manager
+    if not getattr(app.state, "routing_endpoints_added", False):
+        register_routing_endpoints(app, routing_config)
+        app.state.routing_endpoints_added = True
 
     logger.info("Gateway initialized with shared resources.")
 
@@ -164,8 +170,40 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Lambda Gateway", version="2.0.0", lifespan=lifespan, root_path=config.root_path
+    title="Lambda Gateway",
+    version="2.0.0",
+    lifespan=lifespan,
+    root_path=config.root_path,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
+docs_security = HTTPBasic()
+
+
+def verify_docs_credentials(
+    credentials: HTTPBasicCredentials = Depends(docs_security),
+) -> None:
+    valid_user = secrets.compare_digest(credentials.username, config.AUTH_USER)
+    valid_pass = secrets.compare_digest(credentials.password, config.AUTH_PASS)
+    if not (valid_user and valid_pass):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
+@app.get("/docs", include_in_schema=False)
+async def docs_endpoint(credentials: HTTPBasicCredentials = Depends(verify_docs_credentials)):
+    openapi_url = f"{config.root_path}/openapi.json" if config.root_path else "/openapi.json"
+    return get_swagger_ui_html(openapi_url=openapi_url, title="Lambda Gateway - Docs")
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_endpoint(credentials: HTTPBasicCredentials = Depends(verify_docs_credentials)):
+    return JSONResponse(app.openapi())
 
 
 # Register middleware (decorator style).
@@ -396,21 +434,14 @@ async def invoke_lambda_api(
         return JSONResponse(status_code=502, content={"message": str(e)})
 
 
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def gateway_handler(
+async def dispatch_gateway_request(
     request: Request,
-    path: str,
-    user_id: UserIdDep,
-    target: LambdaTargetDep,
-    event_builder: EventBuilderDep,
-    invoker: LambdaInvokerDep,
+    user_id: str,
+    target: Any,
+    event_builder: Any,
+    invoker: Any,
 ):
-    """
-    Catch-all route: forward to Lambda RIE based on routing.yml.
-
-    Authentication and routing resolution are handled via DI.
-    """
-    # Build Event and Invoke Lambda
+    """Forward a request to Lambda RIE based on routing.yml."""
     try:
         body = await request.body()
         event = await event_builder.build(
@@ -457,6 +488,50 @@ async def gateway_handler(
         return JSONResponse(status_code=503, content={"message": str(e)})
     except LambdaExecutionError as e:
         return JSONResponse(status_code=502, content={"message": str(e)})
+
+
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"], include_in_schema=False)
+async def gateway_handler(
+    request: Request,
+    path: str,
+    user_id: UserIdDep,
+    target: LambdaTargetDep,
+    event_builder: EventBuilderDep,
+    invoker: LambdaInvokerDep,
+):
+    """
+    Catch-all route: forward to Lambda RIE based on routing.yml.
+
+    Authentication and routing resolution are handled via DI.
+    """
+    return await dispatch_gateway_request(request, user_id, target, event_builder, invoker)
+
+
+async def routing_gateway_handler(
+    request: Request,
+    user_id: UserIdDep,
+    target: LambdaTargetDep,
+    event_builder: EventBuilderDep,
+    invoker: LambdaInvokerDep,
+):
+    """Routing.yml-backed handler registered into OpenAPI."""
+    return await dispatch_gateway_request(request, user_id, target, event_builder, invoker)
+
+
+def register_routing_endpoints(app: FastAPI, routes: list[dict[str, Any]]) -> None:
+    for route in routes:
+        route_path = route.get("path")
+        route_method = route.get("method")
+        if not route_path or not route_method:
+            logger.warning(f"Skipping routing entry missing path or method: {route}")
+            continue
+        app.add_api_route(
+            route_path,
+            routing_gateway_handler,
+            methods=[route_method.upper()],
+            include_in_schema=True,
+            name=f"routing:{route_method.upper()}:{route_path}",
+        )
 
 
 if __name__ == "__main__":
