@@ -235,6 +235,8 @@ class TestContainerPoolConcurrency:
         """Concurrent acquires should not exceed max_capacity"""
         from services.common.models.internal import WorkerInfo
 
+        pool.acquire_timeout = 0.5
+
         call_count = 0
 
         async def provision_callback(fn):

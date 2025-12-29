@@ -50,6 +50,7 @@ def main():
 
     # --- Unit Tests ---
     if args.unit or args.unit_only:
+        os.environ["DISABLE_VICTORIALOGS"] = "1"
         print("\n=== Running Unit Tests ===\n")
         cmd = [sys.executable, "-m", "pytest", "services/gateway/tests", "tools/cli/tests", "-v"]
         res = subprocess.run(cmd, cwd=PROJECT_ROOT, check=False)

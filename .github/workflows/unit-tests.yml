@@ -27,6 +27,8 @@ jobs:
         run: uv sync --extra dev --frozen
 
       - name: Run unit tests
+        env:
+          DISABLE_VICTORIALOGS: "1"
         run: uv run python tests/run_tests.py --unit-only
 
       - name: Set up Go
