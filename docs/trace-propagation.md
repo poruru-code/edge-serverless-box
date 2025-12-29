@@ -28,8 +28,8 @@ Root=1-{timestamp:08x}-{unique_id:24hex};Sampled=1
 
 Gateway はリクエストごとにユニークな `Request ID` (UUID) を生成します。Trace ID とは別の識別子です。
 
-- **クライアントへの返却**: レスポンスヘッダ `X-Request-Id` に含まれます。
-- **ログ**: Gateway の構造化ログには `request_id` フィールドとして記録されます。
+- **クライアントへの返却**: レスポンスヘッダ `x-amzn-RequestId` に含まれます。
+- **ログ**: Gateway の構造化ログには `aws_request_id` フィールドとして記録されます。
 - **Lambda への伝播**:
     - `event.requestContext.requestId`: Gateway が生成した ID が格納されます。
     - `context.aws_request_id`: Lambda RIE が生成する実行 ID です（**Gateway の ID とは異なる場合があります**）。
@@ -40,7 +40,7 @@ Gateway はリクエストごとにユニークな `Request ID` (UUID) を生成
 sequenceDiagram
     participant Client
     participant Gateway
-    participant Manager
+    participant Agent as Go Agent (gRPC)
     participant LambdaA as Lambda A (RIE)
     participant LambdaB as Lambda B (RIE)
 
@@ -48,9 +48,8 @@ sequenceDiagram
     
     Note over Gateway: 1. Middleware でパース<br/>2. ContextVar に保存
     
-    Gateway->>Manager: POST /invoke<br/>X-Amzn-Trace-Id: Root=1-xxx
-    
-    Manager-->>Gateway: host:port
+    Gateway->>Agent: EnsureContainer (gRPC)
+    Agent-->>Gateway: WorkerInfo (ip:port)
     
     Gateway->>LambdaA: POST /invocations<br/>X-Amzn-Trace-Id: Root=1-xxx<br/>X-Amz-Client-Context: base64({custom:{trace_id:...}})
     

@@ -44,24 +44,21 @@ stateDiagram-v2
 
 ---
 
-## 2. Container Lifecycle Management (Orchestrator)
+## 2. Container Lifecycle Management (Go Agent)
 
-Lambda RIE コンテナは **Orchestrator Service** によって動的に管理されます。
+Lambda RIE コンテナは **Go Agent (gRPC)** によって動的に管理されます。
 リソース効率と応答速度のバランスを取るため、以下の戦略を採用しています。
 
-- **オンデマンド起動**: リクエストが来た時点でコンテナを起動します（Cold Start）。コンテナキャッシュにより2回目以降は高速に応答します（Warm Start）。
-- **アイドル停止**: 一定時間（デフォルト: 5分）リクエストがないコンテナは自動的に停止・削除されます。
+- **オンデマンド起動**: リクエストが来た時点でコンテナを起動します（Cold Start）。プールに残っているコンテナは再利用されます（Warm Start）。
+- **アイドル停止**: 一定時間（デフォルト: 5分）リクエストがないコンテナは Gateway の Janitor が削除します。
 
 詳細は [container-management.md](./container-management.md) を参照してください。
 
 ---
 
-## 3. Orchestrator Restart Resilience
+## 3. Gateway / Agent Restart Resilience
 
-Orchestrator サービス自体が再起動した場合でも、実行中の Lambda コンテナを見失わないように設計されています。
-
-- **Adopt & Sync**: Orchestrator 起動時に Docker 上の既存コンテナをスキャンし、ESB 管理下のコンテナ（`created_by=esb`）を自身の管理テーブルに復元します。
-これにより、Orchestrator のアップデートや再起動中も Lambda コンテナは稼働し続け、サービス断を最小限に抑えます。
+Gateway は起動時に Agent に問い合わせ、既存コンテナを一括削除してクリーンな状態から再構築します。これにより状態不整合を回避し、再起動後の安定性を優先します。
 
 詳細は [orchestrator-restart-resilience.md](./orchestrator-restart-resilience.md) を参照してください。
 
@@ -75,6 +72,5 @@ Orchestrator サービス自体が再起動した場合でも、実行中の Lam
 | ------------------------- | -------------------------------------------------------------------- |
 | `404 Not Found`           | 指定されたパスに対応する Lambda 関数が定義されていない (Routing)     |
 | `502 Bad Gateway`         | コンテナ起動失敗、または Lambda 関数内で未処理の例外が発生           |
-| `503 Service Unavailable` | サーキットブレーカー作動中、または Orchestrator サービスダウン            |
+| `503 Service Unavailable` | サーキットブレーカー作動中、または Agent サービスダウン            |
 | `504 Gateway Timeout`     | Lambda 関数の実行がタイムアウト設定 (`LAMBDA_INVOKE_TIMEOUT`) を超過 |
-
