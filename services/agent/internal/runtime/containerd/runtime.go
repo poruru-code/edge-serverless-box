@@ -320,7 +320,7 @@ func (r *Runtime) Destroy(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *Runtime) Pause(ctx context.Context, id string) error {
+func (r *Runtime) Suspend(ctx context.Context, id string) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
 	container, err := r.client.LoadContainer(ctx, id)

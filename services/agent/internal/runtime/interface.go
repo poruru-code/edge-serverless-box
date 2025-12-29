@@ -54,8 +54,8 @@ type ContainerRuntime interface {
 	// Destroy removes the specified container and its associated resources.
 	Destroy(ctx context.Context, id string) error
 
-	// Pause suspends the container's processes.
-	Pause(ctx context.Context, id string) error
+	// Suspend pauses the container's processes.
+	Suspend(ctx context.Context, id string) error
 
 	// Resume un-suspends a previously paused container.
 	Resume(ctx context.Context, id string) error

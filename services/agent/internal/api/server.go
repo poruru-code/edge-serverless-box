@@ -61,7 +61,7 @@ func (s *AgentServer) PauseContainer(ctx context.Context, req *pb.PauseContainer
 		return nil, status.Error(codes.InvalidArgument, "container_id is required")
 	}
 
-	if err := s.runtime.Pause(ctx, req.ContainerId); err != nil {
+	if err := s.runtime.Suspend(ctx, req.ContainerId); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to pause container: %v", err)
 	}
 
