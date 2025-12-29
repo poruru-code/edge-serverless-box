@@ -1,6 +1,6 @@
 import logging
 from typing import List, Any
-from services.common.models.internal import WorkerInfo
+from services.common.models.internal import WorkerInfo, ContainerMetrics
 from services.gateway.pb import agent_pb2
 
 logger = logging.getLogger("gateway.grpc_provision")
@@ -139,3 +139,29 @@ class GrpcProvisionClient:
         except Exception as e:
             logger.error(f"Failed to list containers via Agent: {e}")
             return []
+
+    async def get_container_metrics(self, container_id: str) -> ContainerMetrics:
+        """Get container metrics via gRPC Agent"""
+        req = agent_pb2.GetContainerMetricsRequest(container_id=container_id)
+        try:
+            resp = await self.stub.GetContainerMetrics(req)
+            metrics = resp.metrics
+            if metrics is None:
+                raise ValueError("Metrics response is empty")
+            return ContainerMetrics(
+                container_id=metrics.container_id,
+                function_name=metrics.function_name,
+                container_name=metrics.container_name,
+                state=metrics.state,
+                memory_current=metrics.memory_current,
+                memory_max=metrics.memory_max,
+                oom_events=metrics.oom_events,
+                cpu_usage_ns=metrics.cpu_usage_ns,
+                exit_code=metrics.exit_code,
+                restart_count=metrics.restart_count,
+                exit_time=metrics.exit_time,
+                collected_at=metrics.collected_at,
+            )
+        except Exception as e:
+            logger.error(f"Failed to get metrics for container {container_id} via Agent: {e}")
+            raise

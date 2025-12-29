@@ -17,6 +17,7 @@ from ..core.event_builder import EventBuilder
 from ..services.function_registry import FunctionRegistry
 from ..services.route_matcher import RouteMatcher
 from ..services.lambda_invoker import LambdaInvoker
+from ..services.pool_manager import PoolManager
 
 
 # ==========================================
@@ -44,12 +45,17 @@ def get_event_builder(request: Request) -> EventBuilder:
     return request.app.state.event_builder
 
 
+def get_pool_manager(request: Request) -> PoolManager:
+    return request.app.state.pool_manager
+
+
 # Service Dependency Type Aliases
 FunctionRegistryDep = Annotated[FunctionRegistry, Depends(get_function_registry)]
 RouteMatcherDep = Annotated[RouteMatcher, Depends(get_route_matcher)]
 LambdaInvokerDep = Annotated[LambdaInvoker, Depends(get_lambda_invoker)]
 HttpClientDep = Annotated[AsyncClient, Depends(get_http_client)]
 EventBuilderDep = Annotated[EventBuilder, Depends(get_event_builder)]
+PoolManagerDep = Annotated[PoolManager, Depends(get_pool_manager)]
 
 
 # ==========================================

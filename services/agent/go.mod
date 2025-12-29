@@ -3,6 +3,7 @@ module github.com/poruru/edge-serverless-box/services/agent
 go 1.24.11
 
 require (
+	github.com/containerd/cgroups/v3 v3.0.2
 	github.com/containerd/containerd v1.7.25
 	github.com/containerd/go-cni v1.1.13
 	github.com/docker/docker v28.5.2+incompatible

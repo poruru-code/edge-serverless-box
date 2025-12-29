@@ -7,12 +7,11 @@
 package v1
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -587,6 +586,227 @@ func (x *ContainerState) GetCreatedAt() int64 {
 	return 0
 }
 
+// Metrics API
+type GetContainerMetricsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ContainerId   string                 `protobuf:"bytes,1,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContainerMetricsRequest) Reset() {
+	*x = GetContainerMetricsRequest{}
+	mi := &file_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContainerMetricsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContainerMetricsRequest) ProtoMessage() {}
+
+func (x *GetContainerMetricsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContainerMetricsRequest.ProtoReflect.Descriptor instead.
+func (*GetContainerMetricsRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetContainerMetricsRequest) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+type GetContainerMetricsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Metrics       *ContainerMetrics      `protobuf:"bytes,1,opt,name=metrics,proto3" json:"metrics,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContainerMetricsResponse) Reset() {
+	*x = GetContainerMetricsResponse{}
+	mi := &file_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContainerMetricsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContainerMetricsResponse) ProtoMessage() {}
+
+func (x *GetContainerMetricsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContainerMetricsResponse.ProtoReflect.Descriptor instead.
+func (*GetContainerMetricsResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetContainerMetricsResponse) GetMetrics() *ContainerMetrics {
+	if x != nil {
+		return x.Metrics
+	}
+	return nil
+}
+
+type ContainerMetrics struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ContainerId   string                 `protobuf:"bytes,1,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	FunctionName  string                 `protobuf:"bytes,2,opt,name=function_name,json=functionName,proto3" json:"function_name,omitempty"`
+	ContainerName string                 `protobuf:"bytes,3,opt,name=container_name,json=containerName,proto3" json:"container_name,omitempty"`
+	State         string                 `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`                                       // "RUNNING", "PAUSED", "STOPPED", "UNKNOWN"
+	MemoryCurrent uint64                 `protobuf:"varint,5,opt,name=memory_current,json=memoryCurrent,proto3" json:"memory_current,omitempty"` // bytes
+	MemoryMax     uint64                 `protobuf:"varint,6,opt,name=memory_max,json=memoryMax,proto3" json:"memory_max,omitempty"`             // bytes
+	OomEvents     uint64                 `protobuf:"varint,7,opt,name=oom_events,json=oomEvents,proto3" json:"oom_events,omitempty"`             // count
+	CpuUsageNs    uint64                 `protobuf:"varint,8,opt,name=cpu_usage_ns,json=cpuUsageNs,proto3" json:"cpu_usage_ns,omitempty"`        // nanoseconds
+	ExitCode      uint32                 `protobuf:"varint,9,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	RestartCount  uint32                 `protobuf:"varint,10,opt,name=restart_count,json=restartCount,proto3" json:"restart_count,omitempty"`
+	ExitTime      int64                  `protobuf:"varint,11,opt,name=exit_time,json=exitTime,proto3" json:"exit_time,omitempty"`          // Unix Timestamp (秒)
+	CollectedAt   int64                  `protobuf:"varint,12,opt,name=collected_at,json=collectedAt,proto3" json:"collected_at,omitempty"` // Unix Timestamp (秒)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContainerMetrics) Reset() {
+	*x = ContainerMetrics{}
+	mi := &file_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContainerMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContainerMetrics) ProtoMessage() {}
+
+func (x *ContainerMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContainerMetrics.ProtoReflect.Descriptor instead.
+func (*ContainerMetrics) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ContainerMetrics) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+func (x *ContainerMetrics) GetFunctionName() string {
+	if x != nil {
+		return x.FunctionName
+	}
+	return ""
+}
+
+func (x *ContainerMetrics) GetContainerName() string {
+	if x != nil {
+		return x.ContainerName
+	}
+	return ""
+}
+
+func (x *ContainerMetrics) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ContainerMetrics) GetMemoryCurrent() uint64 {
+	if x != nil {
+		return x.MemoryCurrent
+	}
+	return 0
+}
+
+func (x *ContainerMetrics) GetMemoryMax() uint64 {
+	if x != nil {
+		return x.MemoryMax
+	}
+	return 0
+}
+
+func (x *ContainerMetrics) GetOomEvents() uint64 {
+	if x != nil {
+		return x.OomEvents
+	}
+	return 0
+}
+
+func (x *ContainerMetrics) GetCpuUsageNs() uint64 {
+	if x != nil {
+		return x.CpuUsageNs
+	}
+	return 0
+}
+
+func (x *ContainerMetrics) GetExitCode() uint32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
+func (x *ContainerMetrics) GetRestartCount() uint32 {
+	if x != nil {
+		return x.RestartCount
+	}
+	return 0
+}
+
+func (x *ContainerMetrics) GetExitTime() int64 {
+	if x != nil {
+		return x.ExitTime
+	}
+	return 0
+}
+
+func (x *ContainerMetrics) GetCollectedAt() int64 {
+	if x != nil {
+		return x.CollectedAt
+	}
+	return 0
+}
+
 var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
@@ -632,13 +852,35 @@ const file_agent_proto_rawDesc = "" +
 	"lastUsedAt\x12%\n" +
 	"\x0econtainer_name\x18\x05 \x01(\tR\rcontainerName\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\x03R\tcreatedAt2\xde\x03\n" +
+	"created_at\x18\x06 \x01(\x03R\tcreatedAt\"?\n" +
+	"\x1aGetContainerMetricsRequest\x12!\n" +
+	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"W\n" +
+	"\x1bGetContainerMetricsResponse\x128\n" +
+	"\ametrics\x18\x01 \x01(\v2\x1e.esb.agent.v1.ContainerMetricsR\ametrics\"\xa0\x03\n" +
+	"\x10ContainerMetrics\x12!\n" +
+	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\x12#\n" +
+	"\rfunction_name\x18\x02 \x01(\tR\ffunctionName\x12%\n" +
+	"\x0econtainer_name\x18\x03 \x01(\tR\rcontainerName\x12\x14\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\x12%\n" +
+	"\x0ememory_current\x18\x05 \x01(\x04R\rmemoryCurrent\x12\x1d\n" +
+	"\n" +
+	"memory_max\x18\x06 \x01(\x04R\tmemoryMax\x12\x1d\n" +
+	"\n" +
+	"oom_events\x18\a \x01(\x04R\toomEvents\x12 \n" +
+	"\fcpu_usage_ns\x18\b \x01(\x04R\n" +
+	"cpuUsageNs\x12\x1b\n" +
+	"\texit_code\x18\t \x01(\rR\bexitCode\x12#\n" +
+	"\rrestart_count\x18\n" +
+	" \x01(\rR\frestartCount\x12\x1b\n" +
+	"\texit_time\x18\v \x01(\x03R\bexitTime\x12!\n" +
+	"\fcollected_at\x18\f \x01(\x03R\vcollectedAt2\xca\x04\n" +
 	"\fAgentService\x12Q\n" +
 	"\x0fEnsureContainer\x12$.esb.agent.v1.EnsureContainerRequest\x1a\x18.esb.agent.v1.WorkerInfo\x12a\n" +
 	"\x10DestroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponse\x12[\n" +
 	"\x0ePauseContainer\x12#.esb.agent.v1.PauseContainerRequest\x1a$.esb.agent.v1.PauseContainerResponse\x12^\n" +
 	"\x0fResumeContainer\x12$.esb.agent.v1.ResumeContainerRequest\x1a%.esb.agent.v1.ResumeContainerResponse\x12[\n" +
-	"\x0eListContainers\x12#.esb.agent.v1.ListContainersRequest\x1a$.esb.agent.v1.ListContainersResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3"
+	"\x0eListContainers\x12#.esb.agent.v1.ListContainersRequest\x1a$.esb.agent.v1.ListContainersResponse\x12j\n" +
+	"\x13GetContainerMetrics\x12(.esb.agent.v1.GetContainerMetricsRequest\x1a).esb.agent.v1.GetContainerMetricsResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -652,39 +894,45 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_agent_proto_goTypes = []any{
-	(*PauseContainerRequest)(nil),    // 0: esb.agent.v1.PauseContainerRequest
-	(*PauseContainerResponse)(nil),   // 1: esb.agent.v1.PauseContainerResponse
-	(*ResumeContainerRequest)(nil),   // 2: esb.agent.v1.ResumeContainerRequest
-	(*ResumeContainerResponse)(nil),  // 3: esb.agent.v1.ResumeContainerResponse
-	(*EnsureContainerRequest)(nil),   // 4: esb.agent.v1.EnsureContainerRequest
-	(*DestroyContainerRequest)(nil),  // 5: esb.agent.v1.DestroyContainerRequest
-	(*DestroyContainerResponse)(nil), // 6: esb.agent.v1.DestroyContainerResponse
-	(*WorkerInfo)(nil),               // 7: esb.agent.v1.WorkerInfo
-	(*ListContainersRequest)(nil),    // 8: esb.agent.v1.ListContainersRequest
-	(*ListContainersResponse)(nil),   // 9: esb.agent.v1.ListContainersResponse
-	(*ContainerState)(nil),           // 10: esb.agent.v1.ContainerState
-	nil,                              // 11: esb.agent.v1.EnsureContainerRequest.EnvEntry
+	(*PauseContainerRequest)(nil),       // 0: esb.agent.v1.PauseContainerRequest
+	(*PauseContainerResponse)(nil),      // 1: esb.agent.v1.PauseContainerResponse
+	(*ResumeContainerRequest)(nil),      // 2: esb.agent.v1.ResumeContainerRequest
+	(*ResumeContainerResponse)(nil),     // 3: esb.agent.v1.ResumeContainerResponse
+	(*EnsureContainerRequest)(nil),      // 4: esb.agent.v1.EnsureContainerRequest
+	(*DestroyContainerRequest)(nil),     // 5: esb.agent.v1.DestroyContainerRequest
+	(*DestroyContainerResponse)(nil),    // 6: esb.agent.v1.DestroyContainerResponse
+	(*WorkerInfo)(nil),                  // 7: esb.agent.v1.WorkerInfo
+	(*ListContainersRequest)(nil),       // 8: esb.agent.v1.ListContainersRequest
+	(*ListContainersResponse)(nil),      // 9: esb.agent.v1.ListContainersResponse
+	(*ContainerState)(nil),              // 10: esb.agent.v1.ContainerState
+	(*GetContainerMetricsRequest)(nil),  // 11: esb.agent.v1.GetContainerMetricsRequest
+	(*GetContainerMetricsResponse)(nil), // 12: esb.agent.v1.GetContainerMetricsResponse
+	(*ContainerMetrics)(nil),            // 13: esb.agent.v1.ContainerMetrics
+	nil,                                 // 14: esb.agent.v1.EnsureContainerRequest.EnvEntry
 }
 var file_agent_proto_depIdxs = []int32{
-	11, // 0: esb.agent.v1.EnsureContainerRequest.env:type_name -> esb.agent.v1.EnsureContainerRequest.EnvEntry
+	14, // 0: esb.agent.v1.EnsureContainerRequest.env:type_name -> esb.agent.v1.EnsureContainerRequest.EnvEntry
 	10, // 1: esb.agent.v1.ListContainersResponse.containers:type_name -> esb.agent.v1.ContainerState
-	4,  // 2: esb.agent.v1.AgentService.EnsureContainer:input_type -> esb.agent.v1.EnsureContainerRequest
-	5,  // 3: esb.agent.v1.AgentService.DestroyContainer:input_type -> esb.agent.v1.DestroyContainerRequest
-	0,  // 4: esb.agent.v1.AgentService.PauseContainer:input_type -> esb.agent.v1.PauseContainerRequest
-	2,  // 5: esb.agent.v1.AgentService.ResumeContainer:input_type -> esb.agent.v1.ResumeContainerRequest
-	8,  // 6: esb.agent.v1.AgentService.ListContainers:input_type -> esb.agent.v1.ListContainersRequest
-	7,  // 7: esb.agent.v1.AgentService.EnsureContainer:output_type -> esb.agent.v1.WorkerInfo
-	6,  // 8: esb.agent.v1.AgentService.DestroyContainer:output_type -> esb.agent.v1.DestroyContainerResponse
-	1,  // 9: esb.agent.v1.AgentService.PauseContainer:output_type -> esb.agent.v1.PauseContainerResponse
-	3,  // 10: esb.agent.v1.AgentService.ResumeContainer:output_type -> esb.agent.v1.ResumeContainerResponse
-	9,  // 11: esb.agent.v1.AgentService.ListContainers:output_type -> esb.agent.v1.ListContainersResponse
-	7,  // [7:12] is the sub-list for method output_type
-	2,  // [2:7] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	13, // 2: esb.agent.v1.GetContainerMetricsResponse.metrics:type_name -> esb.agent.v1.ContainerMetrics
+	4,  // 3: esb.agent.v1.AgentService.EnsureContainer:input_type -> esb.agent.v1.EnsureContainerRequest
+	5,  // 4: esb.agent.v1.AgentService.DestroyContainer:input_type -> esb.agent.v1.DestroyContainerRequest
+	0,  // 5: esb.agent.v1.AgentService.PauseContainer:input_type -> esb.agent.v1.PauseContainerRequest
+	2,  // 6: esb.agent.v1.AgentService.ResumeContainer:input_type -> esb.agent.v1.ResumeContainerRequest
+	8,  // 7: esb.agent.v1.AgentService.ListContainers:input_type -> esb.agent.v1.ListContainersRequest
+	11, // 8: esb.agent.v1.AgentService.GetContainerMetrics:input_type -> esb.agent.v1.GetContainerMetricsRequest
+	7,  // 9: esb.agent.v1.AgentService.EnsureContainer:output_type -> esb.agent.v1.WorkerInfo
+	6,  // 10: esb.agent.v1.AgentService.DestroyContainer:output_type -> esb.agent.v1.DestroyContainerResponse
+	1,  // 11: esb.agent.v1.AgentService.PauseContainer:output_type -> esb.agent.v1.PauseContainerResponse
+	3,  // 12: esb.agent.v1.AgentService.ResumeContainer:output_type -> esb.agent.v1.ResumeContainerResponse
+	9,  // 13: esb.agent.v1.AgentService.ListContainers:output_type -> esb.agent.v1.ListContainersResponse
+	12, // 14: esb.agent.v1.AgentService.GetContainerMetrics:output_type -> esb.agent.v1.GetContainerMetricsResponse
+	9,  // [9:15] is the sub-list for method output_type
+	3,  // [3:9] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -698,7 +946,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

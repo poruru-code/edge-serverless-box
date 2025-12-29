@@ -8,7 +8,6 @@ package v1
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -20,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_EnsureContainer_FullMethodName  = "/esb.agent.v1.AgentService/EnsureContainer"
-	AgentService_DestroyContainer_FullMethodName = "/esb.agent.v1.AgentService/DestroyContainer"
-	AgentService_PauseContainer_FullMethodName   = "/esb.agent.v1.AgentService/PauseContainer"
-	AgentService_ResumeContainer_FullMethodName  = "/esb.agent.v1.AgentService/ResumeContainer"
-	AgentService_ListContainers_FullMethodName   = "/esb.agent.v1.AgentService/ListContainers"
+	AgentService_EnsureContainer_FullMethodName     = "/esb.agent.v1.AgentService/EnsureContainer"
+	AgentService_DestroyContainer_FullMethodName    = "/esb.agent.v1.AgentService/DestroyContainer"
+	AgentService_PauseContainer_FullMethodName      = "/esb.agent.v1.AgentService/PauseContainer"
+	AgentService_ResumeContainer_FullMethodName     = "/esb.agent.v1.AgentService/ResumeContainer"
+	AgentService_ListContainers_FullMethodName      = "/esb.agent.v1.AgentService/ListContainers"
+	AgentService_GetContainerMetrics_FullMethodName = "/esb.agent.v1.AgentService/GetContainerMetrics"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -41,6 +41,8 @@ type AgentServiceClient interface {
 	ResumeContainer(ctx context.Context, in *ResumeContainerRequest, opts ...grpc.CallOption) (*ResumeContainerResponse, error)
 	// Get state of all managed containers (Phase 3: Janitor).
 	ListContainers(ctx context.Context, in *ListContainersRequest, opts ...grpc.CallOption) (*ListContainersResponse, error)
+	// コンテナのメトリクスを取得
+	GetContainerMetrics(ctx context.Context, in *GetContainerMetricsRequest, opts ...grpc.CallOption) (*GetContainerMetricsResponse, error)
 }
 
 type agentServiceClient struct {
@@ -101,6 +103,16 @@ func (c *agentServiceClient) ListContainers(ctx context.Context, in *ListContain
 	return out, nil
 }
 
+func (c *agentServiceClient) GetContainerMetrics(ctx context.Context, in *GetContainerMetricsRequest, opts ...grpc.CallOption) (*GetContainerMetricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetContainerMetricsResponse)
+	err := c.cc.Invoke(ctx, AgentService_GetContainerMetrics_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -115,6 +127,8 @@ type AgentServiceServer interface {
 	ResumeContainer(context.Context, *ResumeContainerRequest) (*ResumeContainerResponse, error)
 	// Get state of all managed containers (Phase 3: Janitor).
 	ListContainers(context.Context, *ListContainersRequest) (*ListContainersResponse, error)
+	// コンテナのメトリクスを取得
+	GetContainerMetrics(context.Context, *GetContainerMetricsRequest) (*GetContainerMetricsResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -139,6 +153,9 @@ func (UnimplementedAgentServiceServer) ResumeContainer(context.Context, *ResumeC
 }
 func (UnimplementedAgentServiceServer) ListContainers(context.Context, *ListContainersRequest) (*ListContainersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListContainers not implemented")
+}
+func (UnimplementedAgentServiceServer) GetContainerMetrics(context.Context, *GetContainerMetricsRequest) (*GetContainerMetricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetContainerMetrics not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -251,6 +268,24 @@ func _AgentService_ListContainers_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_GetContainerMetrics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContainerMetricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetContainerMetrics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetContainerMetrics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetContainerMetrics(ctx, req.(*GetContainerMetricsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -277,6 +312,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListContainers",
 			Handler:    _AgentService_ListContainers_Handler,
+		},
+		{
+			MethodName: "GetContainerMetrics",
+			Handler:    _AgentService_GetContainerMetrics_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

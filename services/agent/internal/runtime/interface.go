@@ -30,6 +30,22 @@ type ContainerState struct {
 	CreatedAt     time.Time // Container creation time - used for grace period in Reconciliation
 }
 
+// ContainerMetrics represents resource usage stats for a container.
+type ContainerMetrics struct {
+	ID            string
+	FunctionName  string
+	ContainerName string
+	State         string
+	MemoryCurrent uint64
+	MemoryMax     uint64
+	OOMEvents     uint64
+	CPUUsageNS    uint64
+	ExitCode      uint32
+	RestartCount  uint32
+	ExitTime      time.Time
+	CollectedAt   time.Time
+}
+
 // ContainerRuntime defines the interface for interacting with container backends.
 type ContainerRuntime interface {
 	// Ensure ensures that a container for the given request is running and ready.
@@ -47,6 +63,9 @@ type ContainerRuntime interface {
 	// List returns the state of all managed containers.
 	// Used by Janitor to identify idle or orphan containers.
 	List(ctx context.Context) ([]ContainerState, error)
+
+	// Metrics returns resource usage metrics for a container.
+	Metrics(ctx context.Context, id string) (*ContainerMetrics, error)
 
 	// GC performs garbage collection, cleaning up all managed containers and tasks.
 	GC(ctx context.Context) error
