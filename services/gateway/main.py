@@ -108,7 +108,16 @@ async def lifespan(app: FastAPI):
 
     grpc_provision_client = GrpcProvisionClient(agent_stub, function_registry)
 
-    pool_manager = PoolManager(provision_client=grpc_provision_client, config_loader=config_loader)
+    pool_manager = PoolManager(
+        provision_client=grpc_provision_client,
+        config_loader=config_loader,
+        pause_enabled=config.ENABLE_CONTAINER_PAUSE,
+        pause_idle_seconds=config.PAUSE_IDLE_SECONDS,
+    )
+    if config.ENABLE_CONTAINER_PAUSE:
+        logger.info(
+            "Container pause enabled (idle_delay=%ss)", config.PAUSE_IDLE_SECONDS
+        )
 
     # Cleanup orphan containers from previous runs
     await pool_manager.cleanup_all_containers()
@@ -287,10 +296,15 @@ async def authenticate_user(
     )
 
 
-@app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check implementation."""
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/health")
+async def health_check_endpoint():
+    """Health check endpoint."""
+    return await health_check()
 
 
 @app.get("/metrics/containers")

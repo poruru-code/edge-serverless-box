@@ -28,15 +28,16 @@ class GrpcProvisionClient:
         from services.gateway.config import config
 
         # Base env from function config
-        env = func_config.get("environment", {}) if func_config else {}
+        env = dict(func_config.get("environment", {})) if func_config else {}
 
         # Inject RIE & Observability Variables
         env["AWS_LAMBDA_FUNCTION_NAME"] = function_name
         env["AWS_LAMBDA_FUNCTION_VERSION"] = "$LATEST"
         env["AWS_REGION"] = env.get("AWS_REGION", "ap-northeast-1")
 
-        if config.VICTORIALOGS_URL:
-            env["VICTORIALOGS_URL"] = config.VICTORIALOGS_URL
+        victorialogs_url = getattr(config, "VICTORIALOGS_URL", "")
+        if isinstance(victorialogs_url, str) and victorialogs_url:
+            env["VICTORIALOGS_URL"] = victorialogs_url
 
         # Inject LOG_LEVEL for sitecustomize.py logging filter
         import os
@@ -45,8 +46,9 @@ class GrpcProvisionClient:
         env["LOG_LEVEL"] = log_level
 
         # Inject GATEWAY_INTERNAL_URL for chain invocations
-        if config.GATEWAY_INTERNAL_URL:
-            env["GATEWAY_INTERNAL_URL"] = config.GATEWAY_INTERNAL_URL
+        gateway_internal_url = getattr(config, "GATEWAY_INTERNAL_URL", "")
+        if isinstance(gateway_internal_url, str) and gateway_internal_url:
+            env["GATEWAY_INTERNAL_URL"] = gateway_internal_url
 
         # Inject Timeout & Memory from config
         if func_config:
@@ -118,6 +120,27 @@ class GrpcProvisionClient:
             await self.stub.DestroyContainer(req)
         except Exception as e:
             logger.error(f"Failed to delete container {container_id} via Agent: {e}")
+            raise
+
+    async def pause_container(self, function_name: str, worker: WorkerInfo) -> None:
+        """Pause a container via gRPC Agent"""
+        req = agent_pb2.PauseContainerRequest(container_id=worker.id)
+        try:
+            await self.stub.PauseContainer(req)
+            logger.info(f"Paused container {worker.id} for {function_name}")
+        except Exception as e:
+            logger.error(f"Failed to pause container {worker.id} via Agent: {e}")
+            raise
+
+    async def resume_container(self, function_name: str, worker: WorkerInfo) -> None:
+        """Resume a paused container via gRPC Agent"""
+        req = agent_pb2.ResumeContainerRequest(container_id=worker.id)
+        try:
+            await self.stub.ResumeContainer(req)
+            await self._wait_for_readiness(function_name, worker.ip_address, worker.port or 8080)
+            logger.info(f"Resumed container {worker.id} for {function_name}")
+        except Exception as e:
+            logger.error(f"Failed to resume container {worker.id} via Agent: {e}")
             raise
 
     async def list_containers(self) -> List[WorkerInfo]:

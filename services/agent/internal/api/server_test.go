@@ -43,7 +43,7 @@ func (m *MockRuntime) Destroy(ctx context.Context, containerID string) error {
 	return args.Error(0)
 }
 
-func (m *MockRuntime) Pause(ctx context.Context, containerID string) error {
+func (m *MockRuntime) Suspend(ctx context.Context, containerID string) error {
 	args := m.Called(ctx, containerID)
 	return args.Error(0)
 }
@@ -97,7 +97,7 @@ func initServer(t *testing.T, mockRT *MockRuntime) *grpc.ClientConn {
 		}
 	}()
 
-	conn, err := grpc.NewClient("bufnet",
+	conn, err := grpc.DialContext(context.Background(), "bufnet",
 		grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -176,7 +176,7 @@ func TestPauseContainer(t *testing.T) {
 	client := pb.NewAgentServiceClient(conn)
 	containerID := "test-container-id"
 
-	mockRT.On("Pause", mock.Anything, containerID).Return(nil)
+	mockRT.On("Suspend", mock.Anything, containerID).Return(nil)
 
 	req := &pb.PauseContainerRequest{
 		ContainerId: containerID,

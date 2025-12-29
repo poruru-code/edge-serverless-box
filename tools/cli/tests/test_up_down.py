@@ -11,6 +11,7 @@ def test_up_command_flow(mock_build_run, mock_provisioner_main, mock_subprocess)
     args = MagicMock()
     args.build = True
     args.detach = True
+    args.wait = False
 
     run_up(args)
 

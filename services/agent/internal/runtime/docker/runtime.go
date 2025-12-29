@@ -139,7 +139,7 @@ func (r *Runtime) Destroy(ctx context.Context, id string) error {
 	return r.client.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
 }
 
-func (r *Runtime) Pause(ctx context.Context, id string) error {
+func (r *Runtime) Suspend(ctx context.Context, id string) error {
 	// We could call Docker's Pause, but Phase 2's main focus is containerd.
 	// For Docker, keep it simplified or unimplemented, but return a stub or error for compatibility.
 	return fmt.Errorf("pause not implemented for docker runtime")

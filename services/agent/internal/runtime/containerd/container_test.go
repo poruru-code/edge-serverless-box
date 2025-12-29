@@ -132,8 +132,8 @@ func TestRuntime_Ensure_NetworkFailure_Rollback(t *testing.T) {
 	mockTask.AssertExpectations(t)
 }
 
-// Red Test: Pause should load the container and pause the task
-func TestRuntime_Pause_Red(t *testing.T) {
+// Red Test: Suspend should load the container and pause the task
+func TestRuntime_Suspend_Red(t *testing.T) {
 	mockCli := new(MockClient)
 	mockCNI := new(MockCNI)
 	rt := NewRuntime(mockCli, mockCNI, "esb")
@@ -150,7 +150,7 @@ func TestRuntime_Pause_Red(t *testing.T) {
 	// Expect Pause on task
 	mockTask.On("Pause", mock.Anything).Return(nil)
 
-	err := rt.Pause(ctx, containerID)
+	err := rt.Suspend(ctx, containerID)
 
 	assert.NoError(t, err)
 	mockCli.AssertExpectations(t)

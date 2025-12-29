@@ -12,6 +12,15 @@ def setup_logging():
     config_path = os.getenv("LOG_CONFIG_PATH", "/app/config/gateway_log.yaml")
     common_setup_logging(config_path)
 
+    disable_vl = os.getenv("DISABLE_VICTORIALOGS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if disable_vl:
+        return
+
     # Configure async delivery to VictoriaLogs.
     vl_url = os.getenv("VICTORIALOGS_URL", "")
     if vl_url:
