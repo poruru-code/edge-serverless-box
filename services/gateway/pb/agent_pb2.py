@@ -4,59 +4,66 @@
 # source: agent.proto
 # Protobuf Python Version: 6.31.1
 """Generated protocol buffer code."""
-
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import descriptor_pool as _descriptor_pool
 from google.protobuf import runtime_version as _runtime_version
 from google.protobuf import symbol_database as _symbol_database
 from google.protobuf.internal import builder as _builder
-
 _runtime_version.ValidateProtobufRuntimeVersion(
-    _runtime_version.Domain.PUBLIC, 6, 31, 1, "", "agent.proto"
+    _runtime_version.Domain.PUBLIC,
+    6,
+    31,
+    1,
+    '',
+    'agent.proto'
 )
 # @@protoc_insertion_point(imports)
 
 _sym_db = _symbol_database.Default()
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x0b\x61gent.proto\x12\x0c\x65sb.agent.v1"-\n\x15PauseContainerRequest\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t")\n\x16PauseContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08".\n\x16ResumeContainerRequest\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t"*\n\x17ResumeContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08"\xa6\x01\n\x16\x45nsureContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\r\n\x05image\x18\x02 \x01(\t\x12:\n\x03\x65nv\x18\x03 \x03(\x0b\x32-.esb.agent.v1.EnsureContainerRequest.EnvEntry\x1a*\n\x08\x45nvEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"F\n\x17\x44\x65stroyContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\x14\n\x0c\x63ontainer_id\x18\x02 \x01(\t"+\n\x18\x44\x65stroyContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08"H\n\nWorkerInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x12\n\nip_address\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x05"\x17\n\x15ListContainersRequest"J\n\x16ListContainersResponse\x12\x30\n\ncontainers\x18\x01 \x03(\x0b\x32\x1c.esb.agent.v1.ContainerState"\x8f\x01\n\x0e\x43ontainerState\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x14\n\x0clast_used_at\x18\x04 \x01(\x03\x12\x16\n\x0e\x63ontainer_name\x18\x05 \x01(\t\x12\x12\n\ncreated_at\x18\x06 \x01(\x03\x32\xde\x03\n\x0c\x41gentService\x12Q\n\x0f\x45nsureContainer\x12$.esb.agent.v1.EnsureContainerRequest\x1a\x18.esb.agent.v1.WorkerInfo\x12\x61\n\x10\x44\x65stroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponse\x12[\n\x0ePauseContainer\x12#.esb.agent.v1.PauseContainerRequest\x1a$.esb.agent.v1.PauseContainerResponse\x12^\n\x0fResumeContainer\x12$.esb.agent.v1.ResumeContainerRequest\x1a%.esb.agent.v1.ResumeContainerResponse\x12[\n\x0eListContainers\x12#.esb.agent.v1.ListContainersRequest\x1a$.esb.agent.v1.ListContainersResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3'
-)
+
+
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x61gent.proto\x12\x0c\x65sb.agent.v1\"-\n\x15PauseContainerRequest\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t\")\n\x16PauseContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\".\n\x16ResumeContainerRequest\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t\"*\n\x17ResumeContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\xa6\x01\n\x16\x45nsureContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\r\n\x05image\x18\x02 \x01(\t\x12:\n\x03\x65nv\x18\x03 \x03(\x0b\x32-.esb.agent.v1.EnsureContainerRequest.EnvEntry\x1a*\n\x08\x45nvEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"F\n\x17\x44\x65stroyContainerRequest\x12\x15\n\rfunction_name\x18\x01 \x01(\t\x12\x14\n\x0c\x63ontainer_id\x18\x02 \x01(\t\"+\n\x18\x44\x65stroyContainerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"H\n\nWorkerInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x12\n\nip_address\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x05\"\x17\n\x15ListContainersRequest\"J\n\x16ListContainersResponse\x12\x30\n\ncontainers\x18\x01 \x03(\x0b\x32\x1c.esb.agent.v1.ContainerState\"\x8f\x01\n\x0e\x43ontainerState\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x14\n\x0clast_used_at\x18\x04 \x01(\x03\x12\x16\n\x0e\x63ontainer_name\x18\x05 \x01(\t\x12\x12\n\ncreated_at\x18\x06 \x01(\x03\"2\n\x1aGetContainerMetricsRequest\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t\"N\n\x1bGetContainerMetricsResponse\x12/\n\x07metrics\x18\x01 \x01(\x0b\x32\x1e.esb.agent.v1.ContainerMetrics\"\x8f\x02\n\x10\x43ontainerMetrics\x12\x14\n\x0c\x63ontainer_id\x18\x01 \x01(\t\x12\x15\n\rfunction_name\x18\x02 \x01(\t\x12\x16\n\x0e\x63ontainer_name\x18\x03 \x01(\t\x12\r\n\x05state\x18\x04 \x01(\t\x12\x16\n\x0ememory_current\x18\x05 \x01(\x04\x12\x12\n\nmemory_max\x18\x06 \x01(\x04\x12\x12\n\noom_events\x18\x07 \x01(\x04\x12\x14\n\x0c\x63pu_usage_ns\x18\x08 \x01(\x04\x12\x11\n\texit_code\x18\t \x01(\r\x12\x15\n\rrestart_count\x18\n \x01(\r\x12\x11\n\texit_time\x18\x0b \x01(\x03\x12\x14\n\x0c\x63ollected_at\x18\x0c \x01(\x03\x32\xca\x04\n\x0c\x41gentService\x12Q\n\x0f\x45nsureContainer\x12$.esb.agent.v1.EnsureContainerRequest\x1a\x18.esb.agent.v1.WorkerInfo\x12\x61\n\x10\x44\x65stroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponse\x12[\n\x0ePauseContainer\x12#.esb.agent.v1.PauseContainerRequest\x1a$.esb.agent.v1.PauseContainerResponse\x12^\n\x0fResumeContainer\x12$.esb.agent.v1.ResumeContainerRequest\x1a%.esb.agent.v1.ResumeContainerResponse\x12[\n\x0eListContainers\x12#.esb.agent.v1.ListContainersRequest\x1a$.esb.agent.v1.ListContainersResponse\x12j\n\x13GetContainerMetrics\x12(.esb.agent.v1.GetContainerMetricsRequest\x1a).esb.agent.v1.GetContainerMetricsResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "agent_pb2", _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'agent_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
-    _globals["DESCRIPTOR"]._loaded_options = None
-    _globals[
-        "DESCRIPTOR"
-    ]._serialized_options = b"Z?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1"
-    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._loaded_options = None
-    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_options = b"8\001"
-    _globals["_PAUSECONTAINERREQUEST"]._serialized_start = 29
-    _globals["_PAUSECONTAINERREQUEST"]._serialized_end = 74
-    _globals["_PAUSECONTAINERRESPONSE"]._serialized_start = 76
-    _globals["_PAUSECONTAINERRESPONSE"]._serialized_end = 117
-    _globals["_RESUMECONTAINERREQUEST"]._serialized_start = 119
-    _globals["_RESUMECONTAINERREQUEST"]._serialized_end = 165
-    _globals["_RESUMECONTAINERRESPONSE"]._serialized_start = 167
-    _globals["_RESUMECONTAINERRESPONSE"]._serialized_end = 209
-    _globals["_ENSURECONTAINERREQUEST"]._serialized_start = 212
-    _globals["_ENSURECONTAINERREQUEST"]._serialized_end = 378
-    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_start = 336
-    _globals["_ENSURECONTAINERREQUEST_ENVENTRY"]._serialized_end = 378
-    _globals["_DESTROYCONTAINERREQUEST"]._serialized_start = 380
-    _globals["_DESTROYCONTAINERREQUEST"]._serialized_end = 450
-    _globals["_DESTROYCONTAINERRESPONSE"]._serialized_start = 452
-    _globals["_DESTROYCONTAINERRESPONSE"]._serialized_end = 495
-    _globals["_WORKERINFO"]._serialized_start = 497
-    _globals["_WORKERINFO"]._serialized_end = 569
-    _globals["_LISTCONTAINERSREQUEST"]._serialized_start = 571
-    _globals["_LISTCONTAINERSREQUEST"]._serialized_end = 594
-    _globals["_LISTCONTAINERSRESPONSE"]._serialized_start = 596
-    _globals["_LISTCONTAINERSRESPONSE"]._serialized_end = 670
-    _globals["_CONTAINERSTATE"]._serialized_start = 673
-    _globals["_CONTAINERSTATE"]._serialized_end = 816
-    _globals["_AGENTSERVICE"]._serialized_start = 819
-    _globals["_AGENTSERVICE"]._serialized_end = 1297
+  _globals['DESCRIPTOR']._loaded_options = None
+  _globals['DESCRIPTOR']._serialized_options = b'Z?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1'
+  _globals['_ENSURECONTAINERREQUEST_ENVENTRY']._loaded_options = None
+  _globals['_ENSURECONTAINERREQUEST_ENVENTRY']._serialized_options = b'8\001'
+  _globals['_PAUSECONTAINERREQUEST']._serialized_start=29
+  _globals['_PAUSECONTAINERREQUEST']._serialized_end=74
+  _globals['_PAUSECONTAINERRESPONSE']._serialized_start=76
+  _globals['_PAUSECONTAINERRESPONSE']._serialized_end=117
+  _globals['_RESUMECONTAINERREQUEST']._serialized_start=119
+  _globals['_RESUMECONTAINERREQUEST']._serialized_end=165
+  _globals['_RESUMECONTAINERRESPONSE']._serialized_start=167
+  _globals['_RESUMECONTAINERRESPONSE']._serialized_end=209
+  _globals['_ENSURECONTAINERREQUEST']._serialized_start=212
+  _globals['_ENSURECONTAINERREQUEST']._serialized_end=378
+  _globals['_ENSURECONTAINERREQUEST_ENVENTRY']._serialized_start=336
+  _globals['_ENSURECONTAINERREQUEST_ENVENTRY']._serialized_end=378
+  _globals['_DESTROYCONTAINERREQUEST']._serialized_start=380
+  _globals['_DESTROYCONTAINERREQUEST']._serialized_end=450
+  _globals['_DESTROYCONTAINERRESPONSE']._serialized_start=452
+  _globals['_DESTROYCONTAINERRESPONSE']._serialized_end=495
+  _globals['_WORKERINFO']._serialized_start=497
+  _globals['_WORKERINFO']._serialized_end=569
+  _globals['_LISTCONTAINERSREQUEST']._serialized_start=571
+  _globals['_LISTCONTAINERSREQUEST']._serialized_end=594
+  _globals['_LISTCONTAINERSRESPONSE']._serialized_start=596
+  _globals['_LISTCONTAINERSRESPONSE']._serialized_end=670
+  _globals['_CONTAINERSTATE']._serialized_start=673
+  _globals['_CONTAINERSTATE']._serialized_end=816
+  _globals['_GETCONTAINERMETRICSREQUEST']._serialized_start=818
+  _globals['_GETCONTAINERMETRICSREQUEST']._serialized_end=868
+  _globals['_GETCONTAINERMETRICSRESPONSE']._serialized_start=870
+  _globals['_GETCONTAINERMETRICSRESPONSE']._serialized_end=948
+  _globals['_CONTAINERMETRICS']._serialized_start=951
+  _globals['_CONTAINERMETRICS']._serialized_end=1222
+  _globals['_AGENTSERVICE']._serialized_start=1225
+  _globals['_AGENTSERVICE']._serialized_end=1811
 # @@protoc_insertion_point(module_scope)

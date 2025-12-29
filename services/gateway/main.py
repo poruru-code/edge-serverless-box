@@ -6,12 +6,14 @@ requests to Lambda RIE containers based on routing.yml.
 """
 
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from fastapi import FastAPI, Request, HTTPException, Header, BackgroundTasks
 from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import Optional
 from datetime import datetime, timezone
+import asyncio
 import httpx
 import logging
 import json
@@ -34,6 +36,7 @@ from .api.deps import (
     LambdaInvokerDep,
     FunctionRegistryDep,
     EventBuilderDep,
+    PoolManagerDep,
 )
 from .core.logging_config import setup_logging
 from services.common.core.http_client import HttpClientFactory
@@ -288,6 +291,41 @@ async def authenticate_user(
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/metrics/containers")
+async def list_container_metrics(user_id: UserIdDep, pool_manager: PoolManagerDep):
+    """Agent からコンテナメトリクスを取得"""
+    containers = await pool_manager.provision_client.list_containers()
+    if not containers:
+        return {"containers": []}
+
+    tasks = [pool_manager.provision_client.get_container_metrics(c.id) for c in containers]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    metrics_list = []
+    failures = 0
+    for container, result in zip(containers, results):
+        if isinstance(result, Exception):
+            logger.error(f"Failed to fetch metrics for container {container.id}: {result}")
+            failures += 1
+            metrics_list.append(
+                {
+                    "container_id": container.id,
+                    "container_name": container.name,
+                    "error": str(result),
+                }
+            )
+            continue
+        metrics_list.append(asdict(result))
+
+    if failures == len(containers):
+        raise HTTPException(
+            status_code=503,
+            detail="Container metrics are unavailable from Agent runtime",
+        )
+
+    return {"containers": metrics_list, "failures": failures}
 
 
 # ===========================================

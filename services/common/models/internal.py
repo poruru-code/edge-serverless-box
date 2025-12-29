@@ -34,6 +34,24 @@ class WorkerInfo:
         return hash(self.id)
 
 
+@dataclass
+class ContainerMetrics:
+    """コンテナのリソース使用状況"""
+
+    container_id: str
+    function_name: str
+    container_name: str
+    state: str
+    memory_current: int
+    memory_max: int
+    oom_events: int
+    cpu_usage_ns: int
+    exit_code: int
+    restart_count: int
+    exit_time: int
+    collected_at: int
+
+
 class ContainerProvisionRequest(BaseModel):
     """Gateway -> Manager: container provisioning request."""
 

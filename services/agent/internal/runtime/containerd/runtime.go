@@ -5,15 +5,21 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	cgroup1stats "github.com/containerd/cgroups/v3/cgroup1/stats"
+	cgroup2stats "github.com/containerd/cgroups/v3/cgroup2/stats"
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/cio"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/go-cni"
+	"github.com/containerd/typeurl/v2"
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
 )
 
@@ -31,6 +37,106 @@ func NewRuntime(client ContainerdClient, cniPlugin cni.CNI, namespace string) *R
 		client:    client,
 		cni:       cniPlugin,
 		namespace: namespace,
+	}
+}
+
+func memoryLimitBytes(env map[string]string) (uint64, bool) {
+	if env == nil {
+		return 0, false
+	}
+	raw, ok := env["AWS_LAMBDA_FUNCTION_MEMORY_SIZE"]
+	if !ok || raw == "" {
+		return 0, false
+	}
+	mb, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || mb == 0 {
+		log.Printf("WARNING: invalid AWS_LAMBDA_FUNCTION_MEMORY_SIZE=%q", raw)
+		return 0, false
+	}
+	const bytesPerMB uint64 = 1024 * 1024
+	if mb > ^uint64(0)/bytesPerMB {
+		log.Printf("WARNING: AWS_LAMBDA_FUNCTION_MEMORY_SIZE too large: %d", mb)
+		return 0, false
+	}
+	return mb * bytesPerMB, true
+}
+
+func mapTaskState(status containerd.ProcessStatus) string {
+	switch status {
+	case containerd.Running:
+		return "RUNNING"
+	case containerd.Paused:
+		return "PAUSED"
+	case containerd.Stopped:
+		return "STOPPED"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func extractFunctionName(containerID string) string {
+	if !strings.HasPrefix(containerID, runtime.ContainerNamePrefix) {
+		return ""
+	}
+	trimmed := strings.TrimPrefix(containerID, runtime.ContainerNamePrefix)
+	parts := strings.Split(trimmed, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-1], "-")
+}
+
+func extractTaskMetrics(metric *types.Metric) (uint64, uint64, uint64, uint64, error) {
+	if metric == nil || metric.Data == nil {
+		return 0, 0, 0, 0, fmt.Errorf("metrics data is empty")
+	}
+
+	unpacked, err := typeurl.UnmarshalAny(metric.Data)
+	if err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("failed to unmarshal metrics: %w", err)
+	}
+
+	switch data := unpacked.(type) {
+	case *cgroup1stats.Metrics:
+		var memoryCurrent uint64
+		var memoryMax uint64
+		if data.Memory != nil {
+			memoryCurrent = data.Memory.RSS
+			if data.Memory.Usage != nil {
+				memoryMax = data.Memory.Usage.Limit
+			}
+		}
+		var oomEvents uint64
+		if data.MemoryOomControl != nil {
+			oomEvents = data.MemoryOomControl.OomKill
+		}
+		var cpuUsageNS uint64
+		if data.CPU != nil && data.CPU.Usage != nil {
+			cpuUsageNS = data.CPU.Usage.Total
+		}
+		return memoryCurrent, memoryMax, oomEvents, cpuUsageNS, nil
+	case *cgroup2stats.Metrics:
+		var memoryCurrent uint64
+		var memoryMax uint64
+		if data.Memory != nil {
+			memoryCurrent = data.Memory.Usage
+			memoryMax = data.Memory.UsageLimit
+		}
+		var oomEvents uint64
+		if data.MemoryEvents != nil {
+			if data.MemoryEvents.OomKill > 0 {
+				oomEvents = data.MemoryEvents.OomKill
+			} else {
+				oomEvents = data.MemoryEvents.Oom
+			}
+		}
+		var cpuUsageNS uint64
+		if data.CPU != nil {
+			cpuUsageNS = data.CPU.UsageUsec * 1000
+		}
+		return memoryCurrent, memoryMax, oomEvents, cpuUsageNS, nil
+	default:
+		return 0, 0, 0, 0, fmt.Errorf("unsupported metrics type %T", unpacked)
 	}
 }
 
@@ -67,13 +173,20 @@ func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runti
 		envList = append(envList, fmt.Sprintf("%s=%s", k, v))
 	}
 
+	specOpts := []oci.SpecOpts{
+		oci.WithImageConfig(imgObj), // Apply image config (ENTRYPOINT, CMD, ENV, WORKDIR)
+		oci.WithEnv(envList),        // Override with custom env
+	}
+	if limitBytes, ok := memoryLimitBytes(req.Env); ok {
+		specOpts = append(specOpts, oci.WithMemoryLimit(limitBytes))
+	}
+
 	// 2. Create Container with CNI networking
 	container, err := r.client.NewContainer(ctx, containerID,
 		containerd.WithSnapshotter("overlayfs"),
 		containerd.WithNewSnapshot(containerID, imgObj),
 		containerd.WithNewSpec(
-			oci.WithImageConfig(imgObj), // Apply image config (ENTRYPOINT, CMD, ENV, WORKDIR)
-			oci.WithEnv(envList),        // Override with custom env
+			specOpts...,
 		),
 		containerd.WithContainerLabels(map[string]string{
 			runtime.LabelFunctionName: req.FunctionName,
@@ -255,6 +368,64 @@ func (r *Runtime) Close() error {
 		return r.client.Close()
 	}
 	return nil
+}
+
+func (r *Runtime) Metrics(ctx context.Context, id string) (*runtime.ContainerMetrics, error) {
+	ctx = namespaces.WithNamespace(ctx, r.namespace)
+
+	container, err := r.client.LoadContainer(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load container %s: %w", id, err)
+	}
+
+	functionName := ""
+	if labels, err := container.Labels(ctx); err == nil {
+		functionName = labels[runtime.LabelFunctionName]
+	}
+	if functionName == "" {
+		functionName = extractFunctionName(id)
+	}
+
+	result := &runtime.ContainerMetrics{
+		ID:            id,
+		ContainerName: id,
+		FunctionName:  functionName,
+		State:         "UNKNOWN",
+		CollectedAt:   time.Now(),
+	}
+
+	task, err := container.Task(ctx, nil)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			result.State = "STOPPED"
+			return result, nil
+		}
+		return nil, fmt.Errorf("failed to get task for container %s: %w", id, err)
+	}
+
+	status, err := task.Status(ctx)
+	if err == nil {
+		result.State = mapTaskState(status.Status)
+		result.ExitCode = status.ExitStatus
+		result.ExitTime = status.ExitTime
+	}
+
+	metric, err := task.Metrics(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metrics for container %s: %w", id, err)
+	}
+
+	memoryCurrent, memoryMax, oomEvents, cpuUsageNS, err := extractTaskMetrics(metric)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse metrics for container %s: %w", id, err)
+	}
+
+	result.MemoryCurrent = memoryCurrent
+	result.MemoryMax = memoryMax
+	result.OOMEvents = oomEvents
+	result.CPUUsageNS = cpuUsageNS
+
+	return result, nil
 }
 
 // List returns the state of all managed containers.

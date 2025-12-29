@@ -15,6 +15,12 @@ defaults:
 functions:
 {% for func in functions %}
   {{ func.name }}:
+    {% if func.timeout is not none %}
+    timeout: {{ func.timeout }}
+    {% endif %}
+    {% if func.memory_size is not none %}
+    memory_size: {{ func.memory_size }}
+    {% endif %}
     {% if func.environment %}
     environment:
       {% for key, value in func.environment.items() %}

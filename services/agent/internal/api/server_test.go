@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/poruru/edge-serverless-box/services/agent/internal/api"
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
@@ -58,6 +59,14 @@ func (m *MockRuntime) List(ctx context.Context) ([]runtime.ContainerState, error
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]runtime.ContainerState), args.Error(1)
+}
+
+func (m *MockRuntime) Metrics(ctx context.Context, containerID string) (*runtime.ContainerMetrics, error) {
+	args := m.Called(ctx, containerID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*runtime.ContainerMetrics), args.Error(1)
 }
 
 func (m *MockRuntime) GC(ctx context.Context) error {
@@ -198,5 +207,55 @@ func TestResumeContainer(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.True(t, resp.Success)
+	mockRT.AssertExpectations(t)
+}
+
+func TestGetContainerMetrics(t *testing.T) {
+	mockRT := new(MockRuntime)
+	conn := initServer(t, mockRT)
+	defer conn.Close()
+
+	client := pb.NewAgentServiceClient(conn)
+	containerID := "test-container-id"
+	now := time.Now()
+
+	expectedMetrics := &runtime.ContainerMetrics{
+		ID:            containerID,
+		FunctionName:  "test-func",
+		ContainerName: "lambda-test-func-123",
+		State:         "RUNNING",
+		MemoryCurrent: 1024,
+		MemoryMax:     2048,
+		OOMEvents:     1,
+		CPUUsageNS:    999,
+		ExitCode:      0,
+		RestartCount:  0,
+		ExitTime:      now,
+		CollectedAt:   now,
+	}
+
+	mockRT.On("Metrics", mock.Anything, containerID).Return(expectedMetrics, nil)
+
+	req := &pb.GetContainerMetricsRequest{
+		ContainerId: containerID,
+	}
+
+	resp, err := client.GetContainerMetrics(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp.Metrics)
+	assert.Equal(t, containerID, resp.Metrics.ContainerId)
+	assert.Equal(t, expectedMetrics.FunctionName, resp.Metrics.FunctionName)
+	assert.Equal(t, expectedMetrics.ContainerName, resp.Metrics.ContainerName)
+	assert.Equal(t, expectedMetrics.State, resp.Metrics.State)
+	assert.Equal(t, expectedMetrics.MemoryCurrent, resp.Metrics.MemoryCurrent)
+	assert.Equal(t, expectedMetrics.MemoryMax, resp.Metrics.MemoryMax)
+	assert.Equal(t, expectedMetrics.OOMEvents, resp.Metrics.OomEvents)
+	assert.Equal(t, expectedMetrics.CPUUsageNS, resp.Metrics.CpuUsageNs)
+	assert.Equal(t, expectedMetrics.ExitCode, resp.Metrics.ExitCode)
+	assert.Equal(t, expectedMetrics.RestartCount, resp.Metrics.RestartCount)
+	assert.Equal(t, expectedMetrics.ExitTime.Unix(), resp.Metrics.ExitTime)
+	assert.Equal(t, expectedMetrics.CollectedAt.Unix(), resp.Metrics.CollectedAt)
+
 	mockRT.AssertExpectations(t)
 }

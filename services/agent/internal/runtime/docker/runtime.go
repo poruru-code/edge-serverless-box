@@ -204,3 +204,7 @@ func (r *Runtime) List(ctx context.Context) ([]runtime.ContainerState, error) {
 	}
 	return states, nil
 }
+
+func (r *Runtime) Metrics(ctx context.Context, id string) (*runtime.ContainerMetrics, error) {
+	return nil, fmt.Errorf("metrics not implemented for docker runtime")
+}

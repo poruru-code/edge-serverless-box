@@ -18,6 +18,9 @@ service AgentService {
 
   // Get state of all managed containers (Phase 3: Janitor).
   rpc ListContainers (ListContainersRequest) returns (ListContainersResponse);
+
+  // コンテナのメトリクスを取得
+  rpc GetContainerMetrics (GetContainerMetricsRequest) returns (GetContainerMetricsResponse);
 }
 
 message PauseContainerRequest {
@@ -72,4 +75,28 @@ message ContainerState {
   int64 last_used_at = 4; // Unix Timestamp (seconds)
   string container_name = 5;
   int64 created_at = 6;   // Unix Timestamp (seconds) - container creation time
+}
+
+// Metrics API
+message GetContainerMetricsRequest {
+  string container_id = 1;
+}
+
+message GetContainerMetricsResponse {
+  ContainerMetrics metrics = 1;
+}
+
+message ContainerMetrics {
+  string container_id = 1;
+  string function_name = 2;
+  string container_name = 3;
+  string state = 4;             // "RUNNING", "PAUSED", "STOPPED", "UNKNOWN"
+  uint64 memory_current = 5;    // bytes
+  uint64 memory_max = 6;        // bytes
+  uint64 oom_events = 7;        // count
+  uint64 cpu_usage_ns = 8;      // nanoseconds
+  uint32 exit_code = 9;
+  uint32 restart_count = 10;
+  int64 exit_time = 11;         // Unix Timestamp (秒)
+  int64 collected_at = 12;      // Unix Timestamp (秒)
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"time"
 
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
 	pb "github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1"
@@ -104,4 +105,39 @@ func (s *AgentServer) ListContainers(ctx context.Context, req *pb.ListContainers
 	return &pb.ListContainersResponse{
 		Containers: containers,
 	}, nil
+}
+
+func (s *AgentServer) GetContainerMetrics(ctx context.Context, req *pb.GetContainerMetricsRequest) (*pb.GetContainerMetricsResponse, error) {
+	if req.ContainerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "container_id is required")
+	}
+
+	metrics, err := s.runtime.Metrics(ctx, req.ContainerId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get container metrics: %v", err)
+	}
+
+	return &pb.GetContainerMetricsResponse{
+		Metrics: &pb.ContainerMetrics{
+			ContainerId:  metrics.ID,
+			FunctionName: metrics.FunctionName,
+			ContainerName: metrics.ContainerName,
+			State:        metrics.State,
+			MemoryCurrent: metrics.MemoryCurrent,
+			MemoryMax:     metrics.MemoryMax,
+			OomEvents:     metrics.OOMEvents,
+			CpuUsageNs:    metrics.CPUUsageNS,
+			ExitCode:      metrics.ExitCode,
+			RestartCount:  metrics.RestartCount,
+			ExitTime:      toUnixSeconds(metrics.ExitTime),
+			CollectedAt:   toUnixSeconds(metrics.CollectedAt),
+		},
+	}, nil
+}
+
+func toUnixSeconds(value time.Time) int64 {
+	if value.IsZero() {
+		return 0
+	}
+	return value.Unix()
 }
