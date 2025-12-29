@@ -17,6 +17,17 @@ ensure_ip_forward() {
   fi
 }
 
+ensure_route_localnet() {
+  for path in \
+    /proc/sys/net/ipv4/conf/all/route_localnet \
+    /proc/sys/net/ipv4/conf/default/route_localnet \
+    /proc/sys/net/ipv4/conf/lo/route_localnet; do
+    if [ -w "$path" ]; then
+      echo 1 > "$path"
+    fi
+  done
+}
+
 add_dnat_rule() {
   chain="$1"
   dport="$2"
@@ -30,6 +41,9 @@ add_dnat_rule() {
 
 add_snat_rule() {
   dest_ip="$1"
+  if [ "$dest_ip" = "127.0.0.1" ]; then
+    return
+  fi
   if ! iptables -t nat -C POSTROUTING -s "${CNI_GW_IP}/32" -d "${dest_ip}/32" \
     -j MASQUERADE 2>/dev/null; then
     iptables -t nat -A POSTROUTING -s "${CNI_GW_IP}/32" -d "${dest_ip}/32" \
@@ -63,6 +77,7 @@ apply_snat() {
 }
 
 ensure_ip_forward
+ensure_route_localnet
 mkdir -p /run/containerd /var/lib/containerd
 
 apply_dnat PREROUTING

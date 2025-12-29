@@ -14,7 +14,9 @@ services:
       context: .
       dockerfile: services/agent/Dockerfile.dev
     container_name: esb-agent
-    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
     volumes:
       - ./services/agent:/app
       - ./services/agent/config/cni:/etc/cni/net.d

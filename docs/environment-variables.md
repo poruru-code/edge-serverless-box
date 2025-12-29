@@ -130,9 +130,9 @@ cp .env.example .env
 | 変数名 | デフォルト値 | 説明 | 使用コンポーネント |
 |--------|--------------|------|--------------------|
 | `CNI_GW_IP` | `10.88.0.1` | CNI bridge の gateway IP（DNAT の宛先） | runtime-node |
-| `DNAT_S3_IP` | `""` | `10.88.0.1:9000` を転送する RustFS の固定 IP | runtime-node |
-| `DNAT_DB_IP` | `""` | `10.88.0.1:8001` を転送する Scylla Alternator の固定 IP | runtime-node |
-| `DNAT_VL_IP` | `""` | `10.88.0.1:9428` を転送する VictoriaLogs の固定 IP | runtime-node |
+| `DNAT_S3_IP` | `""` | `10.88.0.1:9000` の転送先 IP（local proxy なら `127.0.0.1`） | runtime-node |
+| `DNAT_DB_IP` | `""` | `10.88.0.1:8001` の転送先 IP（local proxy なら `127.0.0.1`） | runtime-node |
+| `DNAT_VL_IP` | `""` | `10.88.0.1:9428` の転送先 IP（local proxy なら `127.0.0.1`） | runtime-node |
 | `DNAT_DB_DPORT` | `8001` | 10.88.0.1 側の DB 宛ポート | runtime-node |
 | `DNAT_DB_PORT` | `8000` | 転送先 DB の実ポート | runtime-node |
 | `DNAT_APPLY_OUTPUT` | `1` | `1` のとき OUTPUT へ DNAT を適用（SNAT/MASQUERADE も必要） | runtime-node |

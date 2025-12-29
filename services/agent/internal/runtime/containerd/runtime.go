@@ -267,7 +267,8 @@ func extractIPv4(result *cni.Result) (string, error) {
 
 func (r *Runtime) setupCNI(ctx context.Context, id, netnsPath string) (*cni.Result, error) {
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	backoff := 100 * time.Millisecond
+	for attempt := 0; attempt < 5; attempt++ {
 		r.cniMu.Lock()
 		result, err := r.cni.Setup(ctx, id, netnsPath)
 		r.cniMu.Unlock()
@@ -278,7 +279,19 @@ func (r *Runtime) setupCNI(ctx context.Context, id, netnsPath string) (*cni.Resu
 		if !strings.Contains(err.Error(), "Link not found") {
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		if ctx.Err() != nil {
+			break
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		if backoff < 800*time.Millisecond {
+			backoff *= 2
+		}
 	}
 	return nil, lastErr
 }

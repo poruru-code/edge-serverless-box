@@ -39,6 +39,7 @@ flowchart LR
 
       TaskNS["task netns\n/proc/<pid>/ns/net"]
       Worker["Lambda worker(s)\nRIE container\nCNI IP 10.88.x.x\n:8080"]
+      LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
 
       Gateway <-->|gRPC localhost:50051| Agent
 
@@ -62,6 +63,7 @@ flowchart LR
 
       Gateway -->|Invoke\nworker.ip:8080| Worker
       Worker -->|Lambda->Gateway\nGATEWAY_INTERNAL_URL\nhttps://10.88.0.1:443| Gateway
+      Worker -->|SDK calls / Logs\nDNAT 10.88.0.1:*| LocalProxy
     end
 
     ExternalNet(("external_network (bridge)\nrequired"))
@@ -87,24 +89,25 @@ flowchart LR
     InternalNet --- DB
 
     Agent -->|Pull images| Registry
-    Gateway -->|Send logs| Victoria
-    Worker -->|SDK calls| S3
-    Worker -->|SDK calls| DB
+    Gateway -->|"Logs [DNAT 10.88.0.1:9428]"| LocalProxy
+    LocalProxy -->|TCP| Victoria
+    LocalProxy -->|TCP| S3
+    LocalProxy -->|TCP| DB
   end
 ```
 
 ### DNAT 前提（Phase B 確定）
 - `10.88.0.1` は **host ではなく runtime-node の CNI bridge gateway**。
-- DNAT 先は **固定 IP** もしくは **runtime-node 内プロキシ**のみ（service 名への DNAT は不可）。
-- 固定 IP は external_network で **静的割当**。
+- DNAT 先は **runtime-node 内プロキシ**のみ（service 名への DNAT は不可）。
+- 固定 IP 依存は廃止し、**プロキシが service 名を解決**する。
 - DNAT は PREROUTING を基本とし、runtime-node 内から叩く場合のみ OUTPUT を併用。
 - OUTPUT で DNAT する場合は **SNAT(MASQUERADE) を必須**。
 - registry は **DNAT 対象外**（`esb-registry:5010` を直接使用）。
 - DNAT 対象は **S3/Dynamo/Logs のみに限定**し、その他は service 名直アクセスに統一する。
 - 具体的な転送先:
-  - `10.88.0.1:9000` -> RustFS (`s3-storage` 固定 IP):9000
-  - `10.88.0.1:8001` -> Scylla Alternator (`database` 固定 IP):8000
-  - `10.88.0.1:9428` -> VictoriaLogs (`victorialogs` 固定 IP):9428
+  - `10.88.0.1:9000` -> `127.0.0.1:9000` (local proxy) -> `s3-storage:9000`
+  - `10.88.0.1:8001` -> `127.0.0.1:8001` (local proxy) -> `database:8000`
+  - `10.88.0.1:9428` -> `127.0.0.1:9428` (local proxy) -> `victorialogs:9428`
 
 ---
 
@@ -140,6 +143,7 @@ flowchart LR
         Function["Lambda function process\n(Python/Node/etc)"]
         Supervisor --> Function
       end
+      LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
 
       Gateway <-->|gRPC localhost:50051| Agent
 
@@ -165,6 +169,7 @@ flowchart LR
 
       Gateway -->|Invoke\nvm.ip:8080| Supervisor
       Function -->|Lambda->Gateway\nGATEWAY_INTERNAL_URL\nhttps://10.88.0.1:443| Gateway
+      Function -->|SDK calls / Logs\nDNAT 10.88.0.1:*| LocalProxy
     end
 
     ExternalNet(("external_network (bridge)\nrequired"))
@@ -190,9 +195,10 @@ flowchart LR
     InternalNet --- DB
 
     Agent -->|Pull images / rootfs| Registry
-    Gateway -->|Send logs| Victoria
-    Function -->|SDK calls| S3
-    Function -->|SDK calls| DB
+    Gateway -->|"Logs (DNAT 10.88.0.1:9428)"| LocalProxy
+    LocalProxy -->|TCP| Victoria
+    LocalProxy -->|TCP| S3
+    LocalProxy -->|TCP| DB
   end
 ```
 
@@ -233,6 +239,46 @@ flowchart LR
 ### C-2: microVM 内 Runtime Supervisor を実装
 - Runtime API 互換の **Supervisor** を用意（init/invoke/shutdown）。
 - 既存の Gateway → worker ルートを **Supervisor に吸収**。
+
+### C-2.5: rootfs 変換パイプラインを定義
+- 目的: 取得したコンテナイメージを **Firecracker 用 ext4 rootfs** に変換し、
+  以降の起動で再利用できる形にする。
+- 入力: OCI イメージ（ref または digest）、snapshotter（例: overlayfs）。
+- 出力: rootfs イメージ（ext4）+ 付随メタデータ（digest, size, created_at など）。
+
+- 変換手順（例: `ctr` 利用、疑似コマンド）
+  ```bash
+  # 1) pull & unpack
+  ctr -n esb-runtime images pull <image>
+  ctr -n esb-runtime images unpack <image>
+
+  # 2) snapshot を mount（snapshot_key は実装側で管理）
+  ctr -n esb-runtime snapshots mount /run/esb/rootfs-src/<key> overlayfs <snapshot_key>
+
+  # 3) サイズ見積もり（+余白 64-128MB など）
+  SIZE_MB=$(du -s --block-size=1M /run/esb/rootfs-src/<key> | awk '{print $1+128}')
+
+  # 4) ext4 生成
+  dd if=/dev/zero of=/var/lib/esb/fc/rootfs/<key>.ext4 bs=1M count=$SIZE_MB
+  mkfs.ext4 -F /var/lib/esb/fc/rootfs/<key>.ext4
+  mount -o loop /var/lib/esb/fc/rootfs/<key>.ext4 /run/esb/rootfs-dst/<key>
+
+  # 5) ルートFS書き出し（rsync または tar）
+  rsync -aHAX /run/esb/rootfs-src/<key>/ /run/esb/rootfs-dst/<key>/
+
+  # 6) cleanup
+  umount /run/esb/rootfs-dst/<key>
+  ctr -n esb-runtime snapshots unmount /run/esb/rootfs-src/<key>
+  ```
+
+- 保存先（例）: `/var/lib/esb/fc/rootfs/` に ext4 と metadata を保存。
+- キャッシュキー（例）:
+  - `image digest` + `rootfs format version` + `runtime supervisor version`
+  - いずれか変更で invalidate。
+- GC 方針（例）:
+  - LRU / TTL を併用し、最大容量を超えたら古いものから削除。
+  - 未参照の rootfs を優先して削除。
+- rootfs 変換の責務は **runtime-node/agent 側**に置く（Supervisor へは渡さない）。
 
 ### C-3: agent の CNI 付与対象 PID を検証
 - `/proc/<pid>/ns/net` が **firecracker shim/jailer に対して有効**か確認。
