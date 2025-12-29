@@ -47,8 +47,7 @@ services:
       retries: 5
     restart: unless-stopped
     networks:
-      external_network:
-        ipv4_address: 172.30.0.10
+      external_network: {}
       internal_network: {}
 
   # ============================================
@@ -70,8 +69,7 @@ services:
       start_period: 180s
     restart: unless-stopped
     networks:
-      external_network:
-        ipv4_address: 172.30.0.11
+      external_network: {}
       internal_network: {}
 
   # Fluent Bit is deprecated. Logs are sent directly from each service to VictoriaLogs.
@@ -124,8 +122,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      external_network:
-        ipv4_address: 172.30.0.12
+      external_network: {}
       internal_network: {}
 
   # ============================================
@@ -146,9 +143,10 @@ services:
       - esb_cni_data:/var/lib/cni
     environment:
       - CNI_GW_IP=10.88.0.1
-      - DNAT_S3_IP=172.30.0.10
-      - DNAT_DB_IP=172.30.0.11
-      - DNAT_VL_IP=172.30.0.12
+      - DNAT_S3_IP=127.0.0.1
+      - DNAT_DB_IP=127.0.0.1
+      - DNAT_VL_IP=127.0.0.1
+      - DNAT_DB_PORT=8001
       - DNAT_APPLY_OUTPUT=1
     healthcheck:
       test: ["CMD", "ctr", "-a", "/run/containerd/containerd.sock", "version"]
@@ -159,6 +157,20 @@ services:
     restart: unless-stopped
     networks:
       - external_network
+
+  # ============================================
+  # Local Proxy (HAProxy for DNAT targets)
+  # ============================================
+  local-proxy:
+    image: haproxy:2.8-alpine
+    container_name: esb-local-proxy
+    network_mode: "service:runtime-node"
+    volumes:
+      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      runtime-node:
+        condition: service_started
+    restart: unless-stopped
 
   # ============================================
   # API Gateway (Facade)
@@ -227,7 +239,9 @@ services:
       context: services/agent
       dockerfile: Dockerfile
     container_name: esb-agent
-    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
     pid: "container:esb-runtime-node"
     # runtime-node NetNS: Agent listens on localhost:50051
     network_mode: "service:runtime-node"

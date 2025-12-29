@@ -39,6 +39,7 @@ flowchart LR
 
       TaskNS["task netns\n/proc/<pid>/ns/net"]
       Worker["Lambda worker(s)\nRIE container\nCNI IP 10.88.x.x\n:8080"]
+      LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
 
       Gateway <-->|gRPC localhost:50051| Agent
 
@@ -62,6 +63,7 @@ flowchart LR
 
       Gateway -->|Invoke\nworker.ip:8080| Worker
       Worker -->|Lambda->Gateway\nGATEWAY_INTERNAL_URL\nhttps://10.88.0.1:443| Gateway
+      Worker -->|SDK calls / Logs\nDNAT 10.88.0.1:*| LocalProxy
     end
 
     ExternalNet(("external_network (bridge)\nrequired"))
@@ -87,24 +89,25 @@ flowchart LR
     InternalNet --- DB
 
     Agent -->|Pull images| Registry
-    Gateway -->|Send logs| Victoria
-    Worker -->|SDK calls| S3
-    Worker -->|SDK calls| DB
+    Gateway -->|"Logs [DNAT 10.88.0.1:9428]"| LocalProxy
+    LocalProxy -->|TCP| Victoria
+    LocalProxy -->|TCP| S3
+    LocalProxy -->|TCP| DB
   end
 ```
 
 ### DNAT 前提（Phase B 確定）
 - `10.88.0.1` は **host ではなく runtime-node の CNI bridge gateway**。
-- DNAT 先は **固定 IP** もしくは **runtime-node 内プロキシ**のみ（service 名への DNAT は不可）。
-- 固定 IP は external_network で **静的割当**。
+- DNAT 先は **runtime-node 内プロキシ**のみ（service 名への DNAT は不可）。
+- 固定 IP 依存は廃止し、**プロキシが service 名を解決**する。
 - DNAT は PREROUTING を基本とし、runtime-node 内から叩く場合のみ OUTPUT を併用。
 - OUTPUT で DNAT する場合は **SNAT(MASQUERADE) を必須**。
 - registry は **DNAT 対象外**（`esb-registry:5010` を直接使用）。
 - DNAT 対象は **S3/Dynamo/Logs のみに限定**し、その他は service 名直アクセスに統一する。
 - 具体的な転送先:
-  - `10.88.0.1:9000` -> RustFS (`s3-storage` 固定 IP):9000
-  - `10.88.0.1:8001` -> Scylla Alternator (`database` 固定 IP):8000
-  - `10.88.0.1:9428` -> VictoriaLogs (`victorialogs` 固定 IP):9428
+  - `10.88.0.1:9000` -> `127.0.0.1:9000` (local proxy) -> `s3-storage:9000`
+  - `10.88.0.1:8001` -> `127.0.0.1:8001` (local proxy) -> `database:8000`
+  - `10.88.0.1:9428` -> `127.0.0.1:9428` (local proxy) -> `victorialogs:9428`
 
 ---
 
@@ -140,6 +143,7 @@ flowchart LR
         Function["Lambda function process\n(Python/Node/etc)"]
         Supervisor --> Function
       end
+      LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
 
       Gateway <-->|gRPC localhost:50051| Agent
 
@@ -165,6 +169,7 @@ flowchart LR
 
       Gateway -->|Invoke\nvm.ip:8080| Supervisor
       Function -->|Lambda->Gateway\nGATEWAY_INTERNAL_URL\nhttps://10.88.0.1:443| Gateway
+      Function -->|SDK calls / Logs\nDNAT 10.88.0.1:*| LocalProxy
     end
 
     ExternalNet(("external_network (bridge)\nrequired"))
@@ -190,9 +195,10 @@ flowchart LR
     InternalNet --- DB
 
     Agent -->|Pull images / rootfs| Registry
-    Gateway -->|Send logs| Victoria
-    Function -->|SDK calls| S3
-    Function -->|SDK calls| DB
+    Gateway -->|"Logs (DNAT 10.88.0.1:9428)"| LocalProxy
+    LocalProxy -->|TCP| Victoria
+    LocalProxy -->|TCP| S3
+    LocalProxy -->|TCP| DB
   end
 ```
 
