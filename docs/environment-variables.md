@@ -69,6 +69,7 @@ cp .env.example .env
 |--------|--------------|------|--------------------|
 | `LOG_LEVEL` | `INFO` | ログレベル (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | 全コンポーネント |
 | `VICTORIALOGS_URL` | `""` | VictoriaLogs の取り込みURL | Gateway |
+| `GATEWAY_VICTORIALOGS_URL` | `""` | Gateway 送信先のVictoriaLogs URL（未設定なら `VICTORIALOGS_URL`/`VICTORIALOGS_HOST` を使用） | Gateway |
 
 ### Gateway 設定
 

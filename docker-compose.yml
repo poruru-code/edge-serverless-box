@@ -1,3 +1,7 @@
+# Where: docker-compose.yml
+# What: Development compose for ESB services and wiring.
+# Why: Bootstraps the local stack with minimal host changes.
+#
 # Lambda functions start dynamically (on-demand start, idle stop).
 
 services:
@@ -210,6 +214,7 @@ services:
       - PYTHONUNBUFFERED=1
       # VictoriaLogs direct-send configuration (Lambda via grpc_provision.py)
       - VICTORIALOGS_URL=http://10.88.0.1:9428  # CNI bridge gateway (DNAT)
+      - GATEWAY_VICTORIALOGS_URL=${GATEWAY_VICTORIALOGS_URL:-}
       # Auto-Scaling Configuration
       - DEFAULT_MAX_CAPACITY=${DEFAULT_MAX_CAPACITY:-1}
       - DEFAULT_MIN_CAPACITY=${DEFAULT_MIN_CAPACITY:-0}

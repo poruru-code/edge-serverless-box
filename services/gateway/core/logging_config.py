@@ -1,3 +1,9 @@
+"""
+Where: services/gateway/core/logging_config.py
+What: Gateway logging setup with VictoriaLogs integration and overrides.
+Why: Allow gateway-specific log ingestion settings without changing worker endpoints.
+"""
+
 import os
 
 from services.common.core.logging_config import configure_queue_logging
@@ -22,7 +28,8 @@ def setup_logging():
         return
 
     # Configure async delivery to VictoriaLogs.
-    vl_url = os.getenv("VICTORIALOGS_URL", "")
+    gateway_vl_url = os.getenv("GATEWAY_VICTORIALOGS_URL", "")
+    vl_url = gateway_vl_url or os.getenv("VICTORIALOGS_URL", "")
     if vl_url:
         if not vl_url.endswith("/insert/jsonline"):
             vl_url = f"{vl_url.rstrip('/')}/insert/jsonline"
