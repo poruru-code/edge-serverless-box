@@ -200,6 +200,7 @@ services:
       - CONTAINERS_NETWORK=${LAMBDA_NETWORK?LAMBDA_NETWORK is required}
       - GATEWAY_INTERNAL_URL=https://10.88.0.1:443  # Lambda containers -> Host Network Gateway (CNI bridge)
       - AGENT_GRPC_ADDRESS=localhost:50051  # Host Network
+      - AGENT_INVOKE_PROXY=${AGENT_INVOKE_PROXY:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY?RUSTFS_ACCESS_KEY is required}
       - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY?RUSTFS_SECRET_KEY is required}

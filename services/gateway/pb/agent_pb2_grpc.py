@@ -64,43 +64,60 @@ class AgentServiceStub(object):
                 request_serializer=agent__pb2.GetContainerMetricsRequest.SerializeToString,
                 response_deserializer=agent__pb2.GetContainerMetricsResponse.FromString,
                 _registered_method=True)
+        self.InvokeWorker = channel.unary_unary(
+                '/esb.agent.v1.AgentService/InvokeWorker',
+                request_serializer=agent__pb2.InvokeWorkerRequest.SerializeToString,
+                response_deserializer=agent__pb2.InvokeWorkerResponse.FromString,
+                _registered_method=True)
 
 
 class AgentServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def EnsureContainer(self, request, context):
-        """Ensure a container and return connection info (start if missing, reuse if present)."""
+        """Ensure a container and return connection info (start if missing, reuse if present).
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def DestroyContainer(self, request, context):
-        """Explicitly stop and remove a container."""
+        """Explicitly stop and remove a container.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def PauseContainer(self, request, context):
-        """Pause a container (for warm starts)."""
+        """Pause a container (for warm starts).
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ResumeContainer(self, request, context):
-        """Resume a container (for warm starts)."""
+        """Resume a container (for warm starts).
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListContainers(self, request, context):
-        """Get state of all managed containers (Phase 3: Janitor)."""
+        """Get state of all managed containers (Phase 3: Janitor).
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetContainerMetrics(self, request, context):
         """コンテナのメトリクスを取得
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def InvokeWorker(self, request, context):
+        """L7 invoke proxy (Gateway -> Agent -> Worker).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -138,6 +155,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.GetContainerMetrics,
                     request_deserializer=agent__pb2.GetContainerMetricsRequest.FromString,
                     response_serializer=agent__pb2.GetContainerMetricsResponse.SerializeToString,
+            ),
+            'InvokeWorker': grpc.unary_unary_rpc_method_handler(
+                    servicer.InvokeWorker,
+                    request_deserializer=agent__pb2.InvokeWorkerRequest.FromString,
+                    response_serializer=agent__pb2.InvokeWorkerResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -302,6 +324,33 @@ class AgentService(object):
             '/esb.agent.v1.AgentService/GetContainerMetrics',
             agent__pb2.GetContainerMetricsRequest.SerializeToString,
             agent__pb2.GetContainerMetricsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def InvokeWorker(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/esb.agent.v1.AgentService/InvokeWorker',
+            agent__pb2.InvokeWorkerRequest.SerializeToString,
+            agent__pb2.InvokeWorkerResponse.FromString,
             options,
             channel_credentials,
             insecure,

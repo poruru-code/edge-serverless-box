@@ -53,3 +53,39 @@ async def test_lambda_invoker_calls_backend_acquire():
 
     backend.acquire_worker.assert_called_once_with("test-func")
     backend.release_worker.assert_called_once_with("test-func", mock_worker)
+
+
+@pytest.mark.asyncio
+async def test_lambda_invoker_uses_agent_invoker_when_configured():
+    client = AsyncMock()
+    registry = MagicMock(spec=FunctionRegistry)
+    config = GatewayConfig()
+    backend = AsyncMock(spec=InvocationBackend)
+
+    mock_worker = MagicMock()
+    mock_worker.ip_address = "1.2.3.4"
+    mock_worker.port = 8080
+    backend.acquire_worker.return_value = mock_worker
+
+    registry.get_function_config.return_value = {"image": "img"}
+
+    agent_invoker = MagicMock()
+    agent_response = MagicMock()
+    agent_response.status_code = 200
+    agent_response.content = b"{}"
+    agent_response.headers = {}
+    agent_response.json.return_value = {}
+    agent_invoker.invoke = AsyncMock(return_value=agent_response)
+
+    invoker = LambdaInvoker(
+        client=client,
+        registry=registry,
+        config=config,
+        backend=backend,
+        agent_invoker=agent_invoker,
+    )
+
+    await invoker.invoke_function("test-func", b"{}")
+
+    agent_invoker.invoke.assert_called_once()
+    client.post.assert_not_called()

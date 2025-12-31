@@ -78,6 +78,9 @@ class GatewayConfig(BaseAppConfig):
 
     # Phase 1: Go Agent Settings
     AGENT_GRPC_ADDRESS: str = Field(default="esb-agent:50051", description="Go Agent gRPC address")
+    AGENT_INVOKE_PROXY: bool = Field(
+        default=False, description="Invoke workers via Agent (L7 proxy) instead of direct IP"
+    )
 
     # FastAPI settings
     root_path: str = Field(default="", description="API root path (for proxy)")

@@ -267,12 +267,14 @@ sudo firecracker-ctr --address /run/firecracker-containerd/containerd.sock \
 ### C-1.5: L7 先行で Invoke 経路を成立
 - Gateway → Agent（gRPC）→ Supervisor への L7 代理で Invoke を通す。
 - `worker.ip:8080` への直アクセスは **一時停止**（L3 未整備のため）。
+- Gateway は `AGENT_INVOKE_PROXY=true` を有効化し、Agent の L7 代理を使用する。
 
 #### L7 Invoke 仕様（暫定）
 - **Gateway → Agent へ gRPC で Invoke を委譲**し、Agent が `http://worker.ip:8080` へ代理送信する。
 - **RIE 互換パス**は維持（`/2015-03-31/functions/function/invocations`）。
 - **Trace 伝播**: `X-Amzn-Trace-Id` と `X-Amz-Client-Context` を Gateway → Agent → Worker で透過。
 - **成功/失敗判定**は Gateway 既存ロジックを踏襲（`X-Amz-Function-Error` や 5xx を基準）。
+- **Readiness Check** は L7 代理モードではスキップ（Gateway から worker.ip に到達できないため）。
 
 **想定 API（Agent 側, gRPC）**
 - `InvokeWorkerRequest`:

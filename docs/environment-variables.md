@@ -118,6 +118,7 @@ cp .env.example .env
 | 変数名 | デフォルト値 | 説明 |
 |--------|--------------|------|
 | `AGENT_GRPC_ADDRESS` | `esb-agent:50051` | Go Agent の gRPC アドレス（`docker-compose.yml` では `localhost:50051`） |
+| `AGENT_INVOKE_PROXY` | `false` | Gateway が worker invoke を Agent 経由（L7 代理）で行うか |
 | `AGENT_RUNTIME` | `docker` | Agent のランタイム (`docker` または `containerd`) |
 | `CONTAINERD_RUNTIME` | `""` | containerd の runtime 名（`AGENT_RUNTIME=containerd` のとき有効。未指定ならデフォルト。例: `aws.firecracker`） |
 | `PORT` | `50051` | Go Agent の gRPC ポート |

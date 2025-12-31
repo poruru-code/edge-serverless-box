@@ -20,6 +20,7 @@ from services.gateway.core.exceptions import (
     LambdaExecutionError,
 )
 from services.common.models.internal import WorkerInfo
+from services.gateway.services.agent_invoke import AgentInvokeClient
 
 logger = logging.getLogger("gateway.lambda_invoker")
 
@@ -64,6 +65,7 @@ class LambdaInvoker:
         registry: FunctionRegistry,
         config: GatewayConfig,
         backend: InvocationBackend,
+        agent_invoker: Optional[AgentInvokeClient] = None,
     ):
         """
         Args:
@@ -76,6 +78,7 @@ class LambdaInvoker:
         self.registry = registry
         self.config = config
         self.backend = backend
+        self.agent_invoker = agent_invoker
         # Store per-function breakers.
         self.breakers: Dict[str, CircuitBreaker] = {}
 
@@ -110,9 +113,7 @@ class LambdaInvoker:
 
             # 3. Execute request via breaker.
             async def do_post():
-                headers = {
-                    "Content-Type": "application/json",
-                }
+                headers = {"Content-Type": "application/json"}
                 if trace_id:
                     headers["X-Amzn-Trace-Id"] = trace_id
                     # RIE workaround: embed Trace ID in ClientContext.
@@ -123,12 +124,20 @@ class LambdaInvoker:
 
                 logger.debug(f"Sending request to RIE with headers: {headers}")
 
-                response = await self.client.post(
-                    rie_url,
-                    content=payload,
-                    headers=headers,
-                    timeout=timeout,
-                )
+                if self.agent_invoker:
+                    response = await self.agent_invoker.invoke(
+                        worker=worker,
+                        payload=payload,
+                        headers=headers,
+                        timeout=timeout,
+                    )
+                else:
+                    response = await self.client.post(
+                        rie_url,
+                        content=payload,
+                        headers=headers,
+                        timeout=timeout,
+                    )
 
                 # Determine whether the response counts as a failure.
                 is_failure = False

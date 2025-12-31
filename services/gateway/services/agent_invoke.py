@@ -1,0 +1,50 @@
+import logging
+from typing import Dict
+
+import httpx
+
+from services.common.models.internal import WorkerInfo
+from services.gateway.pb import agent_pb2
+
+logger = logging.getLogger("gateway.agent_invoke")
+
+
+class AgentInvokeClient:
+    """Invoke Lambda RIE via Agent (L7 proxy)."""
+
+    def __init__(
+        self,
+        stub,
+        path: str = "/2015-03-31/functions/function/invocations",
+    ):
+        self.stub = stub
+        self.path = path
+
+    async def invoke(
+        self,
+        worker: WorkerInfo,
+        payload: bytes,
+        headers: Dict[str, str],
+        timeout: float,
+    ) -> httpx.Response:
+        port = worker.port or 8080
+        timeout_ms = int(timeout * 1000) if timeout and timeout > 0 else 0
+
+        req = agent_pb2.InvokeWorkerRequest(
+            ip_address=worker.ip_address,
+            port=port,
+            path=self.path,
+            payload=payload,
+            headers=headers,
+            timeout_ms=timeout_ms,
+        )
+
+        resp = await self.stub.InvokeWorker(req)
+        url = f"http://{worker.ip_address}:{port}{self.path}"
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            status_code=resp.status_code,
+            headers=resp.headers,
+            content=resp.body,
+            request=request,
+        )

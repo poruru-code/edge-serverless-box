@@ -21,6 +21,9 @@ service AgentService {
 
   // コンテナのメトリクスを取得
   rpc GetContainerMetrics (GetContainerMetricsRequest) returns (GetContainerMetricsResponse);
+
+  // L7 invoke proxy (Gateway -> Agent -> Worker).
+  rpc InvokeWorker (InvokeWorkerRequest) returns (InvokeWorkerResponse);
 }
 
 message PauseContainerRequest {
@@ -59,6 +62,21 @@ message WorkerInfo {
   string name = 2;
   string ip_address = 3;
   int32 port = 4;
+}
+
+message InvokeWorkerRequest {
+  string ip_address = 1;
+  int32 port = 2;
+  string path = 3;
+  bytes payload = 4;
+  map<string, string> headers = 5;
+  int32 timeout_ms = 6;
+}
+
+message InvokeWorkerResponse {
+  int32 status_code = 1;
+  map<string, string> headers = 2;
+  bytes body = 3;
 }
 
 // Phase 3: message for ListContainers.

@@ -421,6 +421,150 @@ func (x *WorkerInfo) GetPort() int32 {
 	return 0
 }
 
+type InvokeWorkerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IpAddress     string                 `protobuf:"bytes,1,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
+	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	Path          string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
+	Headers       map[string]string      `protobuf:"bytes,5,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	TimeoutMs     int32                  `protobuf:"varint,6,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InvokeWorkerRequest) Reset() {
+	*x = InvokeWorkerRequest{}
+	mi := &file_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InvokeWorkerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InvokeWorkerRequest) ProtoMessage() {}
+
+func (x *InvokeWorkerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InvokeWorkerRequest.ProtoReflect.Descriptor instead.
+func (*InvokeWorkerRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *InvokeWorkerRequest) GetIpAddress() string {
+	if x != nil {
+		return x.IpAddress
+	}
+	return ""
+}
+
+func (x *InvokeWorkerRequest) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *InvokeWorkerRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *InvokeWorkerRequest) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *InvokeWorkerRequest) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *InvokeWorkerRequest) GetTimeoutMs() int32 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+type InvokeWorkerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StatusCode    int32                  `protobuf:"varint,1,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	Headers       map[string]string      `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Body          []byte                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InvokeWorkerResponse) Reset() {
+	*x = InvokeWorkerResponse{}
+	mi := &file_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InvokeWorkerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InvokeWorkerResponse) ProtoMessage() {}
+
+func (x *InvokeWorkerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InvokeWorkerResponse.ProtoReflect.Descriptor instead.
+func (*InvokeWorkerResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *InvokeWorkerResponse) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *InvokeWorkerResponse) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *InvokeWorkerResponse) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
 // Phase 3: message for ListContainers.
 type ListContainersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -430,7 +574,7 @@ type ListContainersRequest struct {
 
 func (x *ListContainersRequest) Reset() {
 	*x = ListContainersRequest{}
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -442,7 +586,7 @@ func (x *ListContainersRequest) String() string {
 func (*ListContainersRequest) ProtoMessage() {}
 
 func (x *ListContainersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -455,7 +599,7 @@ func (x *ListContainersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContainersRequest.ProtoReflect.Descriptor instead.
 func (*ListContainersRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_proto_rawDescGZIP(), []int{10}
 }
 
 type ListContainersResponse struct {
@@ -467,7 +611,7 @@ type ListContainersResponse struct {
 
 func (x *ListContainersResponse) Reset() {
 	*x = ListContainersResponse{}
-	mi := &file_agent_proto_msgTypes[9]
+	mi := &file_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -479,7 +623,7 @@ func (x *ListContainersResponse) String() string {
 func (*ListContainersResponse) ProtoMessage() {}
 
 func (x *ListContainersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[9]
+	mi := &file_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -492,7 +636,7 @@ func (x *ListContainersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContainersResponse.ProtoReflect.Descriptor instead.
 func (*ListContainersResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{9}
+	return file_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListContainersResponse) GetContainers() []*ContainerState {
@@ -516,7 +660,7 @@ type ContainerState struct {
 
 func (x *ContainerState) Reset() {
 	*x = ContainerState{}
-	mi := &file_agent_proto_msgTypes[10]
+	mi := &file_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -528,7 +672,7 @@ func (x *ContainerState) String() string {
 func (*ContainerState) ProtoMessage() {}
 
 func (x *ContainerState) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[10]
+	mi := &file_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -541,7 +685,7 @@ func (x *ContainerState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerState.ProtoReflect.Descriptor instead.
 func (*ContainerState) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{10}
+	return file_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ContainerState) GetContainerId() string {
@@ -596,7 +740,7 @@ type GetContainerMetricsRequest struct {
 
 func (x *GetContainerMetricsRequest) Reset() {
 	*x = GetContainerMetricsRequest{}
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -608,7 +752,7 @@ func (x *GetContainerMetricsRequest) String() string {
 func (*GetContainerMetricsRequest) ProtoMessage() {}
 
 func (x *GetContainerMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -621,7 +765,7 @@ func (x *GetContainerMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContainerMetricsRequest.ProtoReflect.Descriptor instead.
 func (*GetContainerMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{11}
+	return file_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetContainerMetricsRequest) GetContainerId() string {
@@ -640,7 +784,7 @@ type GetContainerMetricsResponse struct {
 
 func (x *GetContainerMetricsResponse) Reset() {
 	*x = GetContainerMetricsResponse{}
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -652,7 +796,7 @@ func (x *GetContainerMetricsResponse) String() string {
 func (*GetContainerMetricsResponse) ProtoMessage() {}
 
 func (x *GetContainerMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -665,7 +809,7 @@ func (x *GetContainerMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContainerMetricsResponse.ProtoReflect.Descriptor instead.
 func (*GetContainerMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetContainerMetricsResponse) GetMetrics() *ContainerMetrics {
@@ -695,7 +839,7 @@ type ContainerMetrics struct {
 
 func (x *ContainerMetrics) Reset() {
 	*x = ContainerMetrics{}
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -707,7 +851,7 @@ func (x *ContainerMetrics) String() string {
 func (*ContainerMetrics) ProtoMessage() {}
 
 func (x *ContainerMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -720,7 +864,7 @@ func (x *ContainerMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerMetrics.ProtoReflect.Descriptor instead.
 func (*ContainerMetrics) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{13}
+	return file_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ContainerMetrics) GetContainerId() string {
@@ -838,7 +982,27 @@ const file_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"ip_address\x18\x03 \x01(\tR\tipAddress\x12\x12\n" +
-	"\x04port\x18\x04 \x01(\x05R\x04port\"\x17\n" +
+	"\x04port\x18\x04 \x01(\x05R\x04port\"\x9b\x02\n" +
+	"\x13InvokeWorkerRequest\x12\x1d\n" +
+	"\n" +
+	"ip_address\x18\x01 \x01(\tR\tipAddress\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12\x18\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\x12H\n" +
+	"\aheaders\x18\x05 \x03(\v2..esb.agent.v1.InvokeWorkerRequest.HeadersEntryR\aheaders\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x06 \x01(\x05R\ttimeoutMs\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd2\x01\n" +
+	"\x14InvokeWorkerResponse\x12\x1f\n" +
+	"\vstatus_code\x18\x01 \x01(\x05R\n" +
+	"statusCode\x12I\n" +
+	"\aheaders\x18\x02 \x03(\v2/.esb.agent.v1.InvokeWorkerResponse.HeadersEntryR\aheaders\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x17\n" +
 	"\x15ListContainersRequest\"V\n" +
 	"\x16ListContainersResponse\x12<\n" +
 	"\n" +
@@ -873,14 +1037,15 @@ const file_agent_proto_rawDesc = "" +
 	"\rrestart_count\x18\n" +
 	" \x01(\rR\frestartCount\x12\x1b\n" +
 	"\texit_time\x18\v \x01(\x03R\bexitTime\x12!\n" +
-	"\fcollected_at\x18\f \x01(\x03R\vcollectedAt2\xca\x04\n" +
+	"\fcollected_at\x18\f \x01(\x03R\vcollectedAt2\xa1\x05\n" +
 	"\fAgentService\x12Q\n" +
 	"\x0fEnsureContainer\x12$.esb.agent.v1.EnsureContainerRequest\x1a\x18.esb.agent.v1.WorkerInfo\x12a\n" +
 	"\x10DestroyContainer\x12%.esb.agent.v1.DestroyContainerRequest\x1a&.esb.agent.v1.DestroyContainerResponse\x12[\n" +
 	"\x0ePauseContainer\x12#.esb.agent.v1.PauseContainerRequest\x1a$.esb.agent.v1.PauseContainerResponse\x12^\n" +
 	"\x0fResumeContainer\x12$.esb.agent.v1.ResumeContainerRequest\x1a%.esb.agent.v1.ResumeContainerResponse\x12[\n" +
 	"\x0eListContainers\x12#.esb.agent.v1.ListContainersRequest\x1a$.esb.agent.v1.ListContainersResponse\x12j\n" +
-	"\x13GetContainerMetrics\x12(.esb.agent.v1.GetContainerMetricsRequest\x1a).esb.agent.v1.GetContainerMetricsResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3"
+	"\x13GetContainerMetrics\x12(.esb.agent.v1.GetContainerMetricsRequest\x1a).esb.agent.v1.GetContainerMetricsResponse\x12U\n" +
+	"\fInvokeWorker\x12!.esb.agent.v1.InvokeWorkerRequest\x1a\".esb.agent.v1.InvokeWorkerResponseBAZ?github.com/poruru/edge-serverless-box/services/agent/pkg/api/v1b\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -894,7 +1059,7 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_agent_proto_goTypes = []any{
 	(*PauseContainerRequest)(nil),       // 0: esb.agent.v1.PauseContainerRequest
 	(*PauseContainerResponse)(nil),      // 1: esb.agent.v1.PauseContainerResponse
@@ -904,35 +1069,43 @@ var file_agent_proto_goTypes = []any{
 	(*DestroyContainerRequest)(nil),     // 5: esb.agent.v1.DestroyContainerRequest
 	(*DestroyContainerResponse)(nil),    // 6: esb.agent.v1.DestroyContainerResponse
 	(*WorkerInfo)(nil),                  // 7: esb.agent.v1.WorkerInfo
-	(*ListContainersRequest)(nil),       // 8: esb.agent.v1.ListContainersRequest
-	(*ListContainersResponse)(nil),      // 9: esb.agent.v1.ListContainersResponse
-	(*ContainerState)(nil),              // 10: esb.agent.v1.ContainerState
-	(*GetContainerMetricsRequest)(nil),  // 11: esb.agent.v1.GetContainerMetricsRequest
-	(*GetContainerMetricsResponse)(nil), // 12: esb.agent.v1.GetContainerMetricsResponse
-	(*ContainerMetrics)(nil),            // 13: esb.agent.v1.ContainerMetrics
-	nil,                                 // 14: esb.agent.v1.EnsureContainerRequest.EnvEntry
+	(*InvokeWorkerRequest)(nil),         // 8: esb.agent.v1.InvokeWorkerRequest
+	(*InvokeWorkerResponse)(nil),        // 9: esb.agent.v1.InvokeWorkerResponse
+	(*ListContainersRequest)(nil),       // 10: esb.agent.v1.ListContainersRequest
+	(*ListContainersResponse)(nil),      // 11: esb.agent.v1.ListContainersResponse
+	(*ContainerState)(nil),              // 12: esb.agent.v1.ContainerState
+	(*GetContainerMetricsRequest)(nil),  // 13: esb.agent.v1.GetContainerMetricsRequest
+	(*GetContainerMetricsResponse)(nil), // 14: esb.agent.v1.GetContainerMetricsResponse
+	(*ContainerMetrics)(nil),            // 15: esb.agent.v1.ContainerMetrics
+	nil,                                 // 16: esb.agent.v1.EnsureContainerRequest.EnvEntry
+	nil,                                 // 17: esb.agent.v1.InvokeWorkerRequest.HeadersEntry
+	nil,                                 // 18: esb.agent.v1.InvokeWorkerResponse.HeadersEntry
 }
 var file_agent_proto_depIdxs = []int32{
-	14, // 0: esb.agent.v1.EnsureContainerRequest.env:type_name -> esb.agent.v1.EnsureContainerRequest.EnvEntry
-	10, // 1: esb.agent.v1.ListContainersResponse.containers:type_name -> esb.agent.v1.ContainerState
-	13, // 2: esb.agent.v1.GetContainerMetricsResponse.metrics:type_name -> esb.agent.v1.ContainerMetrics
-	4,  // 3: esb.agent.v1.AgentService.EnsureContainer:input_type -> esb.agent.v1.EnsureContainerRequest
-	5,  // 4: esb.agent.v1.AgentService.DestroyContainer:input_type -> esb.agent.v1.DestroyContainerRequest
-	0,  // 5: esb.agent.v1.AgentService.PauseContainer:input_type -> esb.agent.v1.PauseContainerRequest
-	2,  // 6: esb.agent.v1.AgentService.ResumeContainer:input_type -> esb.agent.v1.ResumeContainerRequest
-	8,  // 7: esb.agent.v1.AgentService.ListContainers:input_type -> esb.agent.v1.ListContainersRequest
-	11, // 8: esb.agent.v1.AgentService.GetContainerMetrics:input_type -> esb.agent.v1.GetContainerMetricsRequest
-	7,  // 9: esb.agent.v1.AgentService.EnsureContainer:output_type -> esb.agent.v1.WorkerInfo
-	6,  // 10: esb.agent.v1.AgentService.DestroyContainer:output_type -> esb.agent.v1.DestroyContainerResponse
-	1,  // 11: esb.agent.v1.AgentService.PauseContainer:output_type -> esb.agent.v1.PauseContainerResponse
-	3,  // 12: esb.agent.v1.AgentService.ResumeContainer:output_type -> esb.agent.v1.ResumeContainerResponse
-	9,  // 13: esb.agent.v1.AgentService.ListContainers:output_type -> esb.agent.v1.ListContainersResponse
-	12, // 14: esb.agent.v1.AgentService.GetContainerMetrics:output_type -> esb.agent.v1.GetContainerMetricsResponse
-	9,  // [9:15] is the sub-list for method output_type
-	3,  // [3:9] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	16, // 0: esb.agent.v1.EnsureContainerRequest.env:type_name -> esb.agent.v1.EnsureContainerRequest.EnvEntry
+	17, // 1: esb.agent.v1.InvokeWorkerRequest.headers:type_name -> esb.agent.v1.InvokeWorkerRequest.HeadersEntry
+	18, // 2: esb.agent.v1.InvokeWorkerResponse.headers:type_name -> esb.agent.v1.InvokeWorkerResponse.HeadersEntry
+	12, // 3: esb.agent.v1.ListContainersResponse.containers:type_name -> esb.agent.v1.ContainerState
+	15, // 4: esb.agent.v1.GetContainerMetricsResponse.metrics:type_name -> esb.agent.v1.ContainerMetrics
+	4,  // 5: esb.agent.v1.AgentService.EnsureContainer:input_type -> esb.agent.v1.EnsureContainerRequest
+	5,  // 6: esb.agent.v1.AgentService.DestroyContainer:input_type -> esb.agent.v1.DestroyContainerRequest
+	0,  // 7: esb.agent.v1.AgentService.PauseContainer:input_type -> esb.agent.v1.PauseContainerRequest
+	2,  // 8: esb.agent.v1.AgentService.ResumeContainer:input_type -> esb.agent.v1.ResumeContainerRequest
+	10, // 9: esb.agent.v1.AgentService.ListContainers:input_type -> esb.agent.v1.ListContainersRequest
+	13, // 10: esb.agent.v1.AgentService.GetContainerMetrics:input_type -> esb.agent.v1.GetContainerMetricsRequest
+	8,  // 11: esb.agent.v1.AgentService.InvokeWorker:input_type -> esb.agent.v1.InvokeWorkerRequest
+	7,  // 12: esb.agent.v1.AgentService.EnsureContainer:output_type -> esb.agent.v1.WorkerInfo
+	6,  // 13: esb.agent.v1.AgentService.DestroyContainer:output_type -> esb.agent.v1.DestroyContainerResponse
+	1,  // 14: esb.agent.v1.AgentService.PauseContainer:output_type -> esb.agent.v1.PauseContainerResponse
+	3,  // 15: esb.agent.v1.AgentService.ResumeContainer:output_type -> esb.agent.v1.ResumeContainerResponse
+	11, // 16: esb.agent.v1.AgentService.ListContainers:output_type -> esb.agent.v1.ListContainersResponse
+	14, // 17: esb.agent.v1.AgentService.GetContainerMetrics:output_type -> esb.agent.v1.GetContainerMetricsResponse
+	9,  // 18: esb.agent.v1.AgentService.InvokeWorker:output_type -> esb.agent.v1.InvokeWorkerResponse
+	12, // [12:19] is the sub-list for method output_type
+	5,  // [5:12] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -946,7 +1119,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

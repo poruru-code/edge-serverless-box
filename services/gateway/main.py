@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
 
     # New ARCH: PoolManager -> GrpcProvisionClient -> Agent
     from .services.grpc_provision import GrpcProvisionClient
+    from .services.agent_invoke import AgentInvokeClient
     import grpc
     from .pb import agent_pb2_grpc
 
@@ -106,7 +107,11 @@ async def lifespan(app: FastAPI):
     channel = grpc.aio.insecure_channel(config.AGENT_GRPC_ADDRESS)
     agent_stub = agent_pb2_grpc.AgentServiceStub(channel)
 
-    grpc_provision_client = GrpcProvisionClient(agent_stub, function_registry)
+    grpc_provision_client = GrpcProvisionClient(
+        agent_stub,
+        function_registry,
+        skip_readiness_check=config.AGENT_INVOKE_PROXY,
+    )
 
     pool_manager = PoolManager(
         provision_client=grpc_provision_client,
@@ -133,11 +138,17 @@ async def lifespan(app: FastAPI):
     await janitor.start()
 
     # Create LambdaInvoker with chosen backend
+    agent_invoker = None
+    if config.AGENT_INVOKE_PROXY:
+        agent_invoker = AgentInvokeClient(agent_stub)
+        logger.info("Gateway invoke proxy enabled (L7 via Agent).")
+
     lambda_invoker = LambdaInvoker(
         client=client,
         registry=function_registry,
         config=config,
         backend=invocation_backend,
+        agent_invoker=agent_invoker,
     )
 
     # Store in app.state for DI

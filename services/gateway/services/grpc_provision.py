@@ -13,9 +13,11 @@ class GrpcProvisionClient:
         self,
         stub,  # AgentServiceStub
         function_registry: Any,
+        skip_readiness_check: bool = False,
     ):
         self.stub = stub
         self.function_registry = function_registry
+        self.skip_readiness_check = bool(skip_readiness_check)
 
     async def provision(self, function_name: str) -> List[WorkerInfo]:
         """Provision a container via gRPC Agent and return WorkerInfo list"""
@@ -75,7 +77,8 @@ class GrpcProvisionClient:
             )
 
             # Readiness Check: Wait for port 8080 to be available
-            await self._wait_for_readiness(function_name, worker.ip_address, worker.port)
+            if not self.skip_readiness_check:
+                await self._wait_for_readiness(function_name, worker.ip_address, worker.port)
 
             return [worker]
         except Exception as e:
@@ -137,7 +140,8 @@ class GrpcProvisionClient:
         req = agent_pb2.ResumeContainerRequest(container_id=worker.id)
         try:
             await self.stub.ResumeContainer(req)
-            await self._wait_for_readiness(function_name, worker.ip_address, worker.port or 8080)
+            if not self.skip_readiness_check:
+                await self._wait_for_readiness(function_name, worker.ip_address, worker.port or 8080)
             logger.info(f"Resumed container {worker.id} for {function_name}")
         except Exception as e:
             logger.error(f"Failed to resume container {worker.id} via Agent: {e}")

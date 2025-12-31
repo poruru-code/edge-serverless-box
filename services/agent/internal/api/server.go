@@ -1,7 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
@@ -39,6 +43,72 @@ func (s *AgentServer) EnsureContainer(ctx context.Context, req *pb.EnsureContain
 		Id:        info.ID,
 		IpAddress: info.IPAddress,
 		Port:      int32(info.Port),
+	}, nil
+}
+
+func (s *AgentServer) InvokeWorker(ctx context.Context, req *pb.InvokeWorkerRequest) (*pb.InvokeWorkerResponse, error) {
+	if req.IpAddress == "" {
+		return nil, status.Error(codes.InvalidArgument, "ip_address is required")
+	}
+
+	port := req.Port
+	if port == 0 {
+		port = 8080
+	}
+
+	path := req.Path
+	if path == "" {
+		path = "/2015-03-31/functions/function/invocations"
+	}
+	if path[0] != '/' {
+		path = "/" + path
+	}
+
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+	if req.TimeoutMs <= 0 {
+		timeout = 30 * time.Second
+	}
+
+	url := fmt.Sprintf("http://%s:%d%s", req.IpAddress, port, path)
+
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(req.Payload))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to build request: %v", err)
+	}
+
+	for key, value := range req.Headers {
+		if key == "" {
+			continue
+		}
+		httpReq.Header.Set(key, value)
+	}
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "failed to invoke worker: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read response body: %v", err)
+	}
+
+	headers := make(map[string]string, len(resp.Header))
+	for key, values := range resp.Header {
+		if len(values) > 0 {
+			headers[key] = values[0]
+		}
+	}
+
+	return &pb.InvokeWorkerResponse{
+		StatusCode: int32(resp.StatusCode),
+		Headers:    headers,
+		Body:       body,
 	}, nil
 }
 

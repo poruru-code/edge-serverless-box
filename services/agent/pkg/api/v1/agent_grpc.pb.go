@@ -25,6 +25,7 @@ const (
 	AgentService_ResumeContainer_FullMethodName     = "/esb.agent.v1.AgentService/ResumeContainer"
 	AgentService_ListContainers_FullMethodName      = "/esb.agent.v1.AgentService/ListContainers"
 	AgentService_GetContainerMetrics_FullMethodName = "/esb.agent.v1.AgentService/GetContainerMetrics"
+	AgentService_InvokeWorker_FullMethodName        = "/esb.agent.v1.AgentService/InvokeWorker"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -43,6 +44,8 @@ type AgentServiceClient interface {
 	ListContainers(ctx context.Context, in *ListContainersRequest, opts ...grpc.CallOption) (*ListContainersResponse, error)
 	// コンテナのメトリクスを取得
 	GetContainerMetrics(ctx context.Context, in *GetContainerMetricsRequest, opts ...grpc.CallOption) (*GetContainerMetricsResponse, error)
+	// L7 invoke proxy (Gateway -> Agent -> Worker).
+	InvokeWorker(ctx context.Context, in *InvokeWorkerRequest, opts ...grpc.CallOption) (*InvokeWorkerResponse, error)
 }
 
 type agentServiceClient struct {
@@ -113,6 +116,16 @@ func (c *agentServiceClient) GetContainerMetrics(ctx context.Context, in *GetCon
 	return out, nil
 }
 
+func (c *agentServiceClient) InvokeWorker(ctx context.Context, in *InvokeWorkerRequest, opts ...grpc.CallOption) (*InvokeWorkerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InvokeWorkerResponse)
+	err := c.cc.Invoke(ctx, AgentService_InvokeWorker_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -129,6 +142,8 @@ type AgentServiceServer interface {
 	ListContainers(context.Context, *ListContainersRequest) (*ListContainersResponse, error)
 	// コンテナのメトリクスを取得
 	GetContainerMetrics(context.Context, *GetContainerMetricsRequest) (*GetContainerMetricsResponse, error)
+	// L7 invoke proxy (Gateway -> Agent -> Worker).
+	InvokeWorker(context.Context, *InvokeWorkerRequest) (*InvokeWorkerResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -156,6 +171,9 @@ func (UnimplementedAgentServiceServer) ListContainers(context.Context, *ListCont
 }
 func (UnimplementedAgentServiceServer) GetContainerMetrics(context.Context, *GetContainerMetricsRequest) (*GetContainerMetricsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetContainerMetrics not implemented")
+}
+func (UnimplementedAgentServiceServer) InvokeWorker(context.Context, *InvokeWorkerRequest) (*InvokeWorkerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InvokeWorker not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -286,6 +304,24 @@ func _AgentService_GetContainerMetrics_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_InvokeWorker_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InvokeWorkerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).InvokeWorker(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_InvokeWorker_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).InvokeWorker(ctx, req.(*InvokeWorkerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -316,6 +352,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetContainerMetrics",
 			Handler:    _AgentService_GetContainerMetrics_Handler,
+		},
+		{
+			MethodName: "InvokeWorker",
+			Handler:    _AgentService_InvokeWorker_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
