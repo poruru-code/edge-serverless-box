@@ -21,6 +21,9 @@ DEVMAPPER_DIR="${DEVMAPPER_DIR:-/var/lib/containerd/devmapper}"
 DEVMAPPER_DATA_SIZE="${DEVMAPPER_DATA_SIZE:-10G}"
 DEVMAPPER_META_SIZE="${DEVMAPPER_META_SIZE:-2G}"
 DEVMAPPER_UDEV="${DEVMAPPER_UDEV:-0}"
+WG_CONTROL_NET="${WG_CONTROL_NET:-}"
+WG_CONTROL_GW="${WG_CONTROL_GW:-}"
+WG_CONTROL_GW_HOST="${WG_CONTROL_GW_HOST:-gateway}"
 
 if [ "$DEVMAPPER_UDEV" != "1" ]; then
   export DM_UDEV_DISABLE=1
@@ -42,6 +45,40 @@ ensure_route_localnet() {
       echo 1 > "$path"
     fi
   done
+}
+
+ensure_wg_route() {
+  if [ -z "$WG_CONTROL_NET" ]; then
+    return
+  fi
+  gw="$WG_CONTROL_GW"
+  if [ -z "$gw" ] && [ -n "$WG_CONTROL_GW_HOST" ]; then
+    gw="$(getent hosts "$WG_CONTROL_GW_HOST" 2>/dev/null | awk '{print $1}' | head -n1)"
+  fi
+  if [ -z "$gw" ]; then
+    gw="$(ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $3}' | head -n1)"
+  fi
+  if [ -z "$gw" ]; then
+    echo "WARN: default gateway not found; skipping WG route for $WG_CONTROL_NET"
+    return
+  fi
+  ip route replace "$WG_CONTROL_NET" via "$gw" 2>/dev/null || true
+}
+
+start_wg_route_watcher() {
+  if [ -z "$WG_CONTROL_NET" ] || [ -z "$WG_CONTROL_GW_HOST" ] || [ -n "$WG_CONTROL_GW" ]; then
+    return
+  fi
+  (
+    for _ in $(seq 1 30); do
+      gw="$(getent hosts "$WG_CONTROL_GW_HOST" 2>/dev/null | awk '{print $1}' | head -n1)"
+      if [ -n "$gw" ]; then
+        ip route replace "$WG_CONTROL_NET" via "$gw" 2>/dev/null || true
+        exit 0
+      fi
+      sleep 1
+    done
+  ) &
 }
 
 ensure_vhost_vsock() {
@@ -150,6 +187,8 @@ apply_snat() {
 
 ensure_ip_forward
 ensure_route_localnet
+ensure_wg_route
+start_wg_route_watcher
 ensure_vhost_vsock
 mkdir -p /run/containerd /var/lib/containerd
 mkdir -p /var/lib/firecracker-containerd/runtime /var/lib/firecracker-containerd/shim-base

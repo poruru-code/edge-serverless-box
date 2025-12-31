@@ -8,6 +8,9 @@
 
 services:
   runtime-node:
+    networks:
+      runtime_net:
+        ipv4_address: ${RUNTIME_NODE_IP:-172.20.0.10}
     environment:
       - CONTAINERD_BIN=/usr/local/bin/firecracker-containerd
       - CONTAINERD_CONFIG=/etc/firecracker-containerd/config.toml
@@ -16,10 +19,21 @@ services:
       - DEVMAPPER_DATA_SIZE=10G
       - DEVMAPPER_META_SIZE=2G
       - DEVMAPPER_UDEV=1
-      - VHOST_VSOCK_REQUIRED=1
+      - VHOST_VSOCK_REQUIRED=${VHOST_VSOCK_REQUIRED:-1}
+      - WG_CONTROL_NET=${WG_CONTROL_NET:-10.99.0.0/24}
     volumes:
       - /dev:/dev
   agent:
     environment:
       - AGENT_RUNTIME=containerd
       - CONTAINERD_RUNTIME=aws.firecracker
+  gateway:
+    environment:
+      - GATEWAY_INTERNAL_URL=${GATEWAY_INTERNAL_URL:-https://10.99.0.1:443}
+
+networks:
+  runtime_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${RUNTIME_NET_SUBNET:-172.20.0.0/16}

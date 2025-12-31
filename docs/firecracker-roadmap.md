@@ -62,7 +62,7 @@ flowchart LR
       TaskNS -->|Net attached\nIP assigned| Worker
 
       Gateway -->|Invoke\nworker.ip:8080| Worker
-      Worker -->|Lambda->Gateway\nGATEWAY_INTERNAL_URL\nhttps://10.88.0.1:443| Gateway
+      Worker -->|Lambda->Gateway\nGATEWAY_INTERNAL_URL\nhttps://10.99.0.1:443| Gateway
       Worker -->|SDK calls / Logs\nDNAT 10.88.0.1:*| LocalProxy
     end
 
@@ -134,14 +134,15 @@ flowchart LR
 
 #### 通信方針（L7 → L3 移行）
 - **L7 先行（当面）**: Gateway → Agent（gRPC）→ Supervisor への L7 代理で Invoke を成立させる。
-- **L3 移行（最終）**: トンネル/静的ルートで `10.88.0.0/16` を直通にし、`worker.ip:8080` の直アクセスへ復帰する。
+- **L3 移行（最終）**: **Gateway コンテナ内でトンネルを終端**し、WSL ホストにはルートを入れずに
+  `10.88.0.0/16` を Compute VM へ通す（`worker.ip:8080` 直アクセスへ復帰）。
 
 ```mermaid
 flowchart LR
   Client["Client / SDK"] -->|HTTPS :443| Gateway
 
   subgraph ControlPlane["Control Plane (WSL/Docker)"]
-    Gateway["gateway\n:443"]
+    Gateway["gateway\n:443\nwg0 (tunnel)"]
     Registry["esb-registry:5010"]
     S3["s3-storage:9000/9001"]
     DB["database:8001"]
@@ -149,14 +150,15 @@ flowchart LR
   end
 
   subgraph ComputePlane["Compute Plane (Hyper-V VM / Linux)"]
+    ComputeHost["compute host\nwg0 + ip_forward"]
     subgraph RuntimeNS["runtime-node NetNS (shared)"]
       RuntimeNode["runtime-node (privileged)\nfirecracker-containerd + shim\nCNI bridge 10.88.0.0/16"]
       Agent["agent\nnetns+pidns=runtime-node\n:50051"]
       LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
       TaskNS["VM task netns\n/proc/<pid>/ns/net"]
-      subgraph VM["microVM worker(s)\nCNI IP 10.88.x.x\n:8080"]
+      subgraph VM["microVM worker(s)<br>CNI IP 10.88.x.x\n:8080"]
         direction TB
-        Supervisor["Runtime Supervisor\n(Runtime API compatible)\n:8080"]
+        Supervisor["Runtime Supervisor<br>(Runtime API compatible)\n:8080"]
         Function["Lambda function process\n(Python/Node/etc)"]
         Supervisor --> Function
       end
@@ -174,8 +176,8 @@ flowchart LR
   Gateway -->|"Invoke (L7 proxy)"| Agent
   Agent -->|Invoke proxy\nHTTP :8080| Supervisor
 
-  Tunnel["L3 tunnel / static route (future)\n10.88.0.0/16"] -.-> RuntimeNode
-  Tunnel -.-> Gateway
+  Gateway <-->|"WireGuard (wg0)"| ComputeHost
+  ComputeHost -->|"route 10.88.x.x"| RuntimeNode
   Gateway -.->|"Invoke (future)<br>worker.ip:8080"| Supervisor
 
   Agent -->|Pull images / rootfs| Registry
@@ -290,8 +292,104 @@ sudo firecracker-ctr --address /run/firecracker-containerd/containerd.sock \
   - `function_error`（`X-Amz-Function-Error`）
 
 ### C-1.6: L3 へ移行（`worker.ip:8080` へ復帰）
-- トンネルまたは静的ルートで `10.88.0.0/16` を Compute VM に通す。
-- Gateway から `worker.ip:8080` を直接叩ける状態に戻す。
+- **方針（B）**: **Gateway コンテナ内でトンネルを終端し、WSL ホストにはルートを入れない**。
+  Gateway コンテナ内のルートで `10.88.x.x` を Compute VM に送る。
+
+#### 実装計画（B: gateway 内トンネル）
+**Goal:** Gateway コンテナから `worker.ip:8080` へ直アクセス可能にする（L7 代理を外せる状態）。
+
+1) **サブネット設計（必須）**
+   - node1: `10.88.1.0/24`
+   - node2: `10.88.2.0/24`
+   - 以降、**node ごとに /24 を固定**（Control 側の経路衝突を防ぐ）。
+
+2) **Gateway コンテナにトンネル終端を実装**
+   - トンネル方式は **WireGuard（ユーザー空間 `wireguard-go` 前提）**を採用。
+   - **gateway は runtime-node の NetNS を共有しない**（`network_mode: service:runtime-node` を外す）。
+     - 例: `ports: ["443:443"]`, `networks: [external_network]`
+     - `AGENT_GRPC_ADDRESS=runtime-node:50051` を指定し、gRPC は runtime-node 経由で接続する。
+   - Gateway コンテナに以下を追加（実装時の変更点）:
+     - `cap_add: [NET_ADMIN]`
+     - `devices: [/dev/net/tun]`
+     - パッケージ: `wireguard-tools`, `wireguard-go`, `iproute2`
+   - 設定ファイルをマウント:
+     - `/app/config/wireguard/wg0.conf`
+     - 既定の配置: `~/.esb/wireguard/gateway/wg0.conf`
+   - `esb node provision` が **gateway 側の wg0.conf も生成/追記**する。
+   - 起動時に `wg0` を作成し、**Gateway コンテナ内でルートを追加**:
+     ```bash
+     wg-quick up /app/config/wireguard/wg0.conf
+     ip route replace 10.88.1.0/24 dev wg0
+     ```
+   - WSL ホストには **一切ルートを入れない**（route は gateway コンテナ内のみ）。
+   - **worker → gateway の戻り経路は WG に寄せる**:
+     - `GATEWAY_INTERNAL_URL=https://10.99.0.1:443`
+     - runtime-node に `WG_CONTROL_NET=10.99.0.0/24` を設定し、WG 宛のルートを追加する。
+
+3) **Compute VM（ホスト側）でトンネル終端と転送を有効化**
+   - `wireguard` を導入し `wg0` を作成。
+   - `sysctl -w net.ipv4.ip_forward=1` を有効化（永続化も行う）。
+   - `wg0` 側から `10.88.1.0/24` 宛を **runtime-node 側へ転送**できるようにする。
+   - `esb node provision` は `~/.esb/wireguard/compute/<node>/wg0.conf` を `/etc/wireguard/wg0.conf` に配置し、
+     `wg-quick` の起動までを行う前提。
+   - `wireguard-tools` が Control 側にあれば **鍵と config を自動生成**する。
+   - 例: `esb node provision --host esb@10.1.1.220 --wg-subnet 10.88.1.0/24 --wg-runtime-ip 172.20.0.10`
+
+4) **runtime-node への到達（2案のどちらかを選択）**
+   - **採用: runtime-node を user-defined bridge + 固定 IP で稼働**
+     - Compute VM ホストから **runtime-node の外側 IP**へルートを張る。
+     - runtime-node は **固定 IP（専用 Docker network）必須**。
+     - 例:
+       ```bash
+       ip route replace 10.88.1.0/24 via 172.20.0.10
+       ```
+     - Compute VM 側の compose では `runtime_net`（例: `172.20.0.0/16`）を定義し、
+       `runtime-node` を `172.20.0.10` に固定する（`RUNTIME_NODE_IP` で上書き可）。
+
+5) **受け入れテスト（C-1.6 完了条件）**
+   - Gateway コンテナ内で:
+     ```bash
+     ip route | grep 10.88
+     curl -sv http://10.88.1.<worker>:8080/ 2>&1 | head -n 20
+     ```
+   - `AGENT_INVOKE_PROXY=false` にしても Invoke が通ること。
+
+#### WireGuard 設定例（最小）
+**Gateway 側（wg0.conf）**
+```ini
+[Interface]
+Address = 10.99.0.1/24
+PrivateKey = <gateway_private_key>
+MTU = 1340
+
+[Peer]
+PublicKey = <compute_public_key>
+Endpoint = <compute_vm_ip>:51820
+AllowedIPs = 10.88.1.0/24, 10.99.0.2/32
+PersistentKeepalive = 25
+```
+
+**Compute VM 側（wg0.conf）**
+```ini
+[Interface]
+Address = 10.99.0.2/32
+ListenPort = 51820
+PrivateKey = <compute_private_key>
+MTU = 1340
+PostUp = sysctl -w net.ipv4.ip_forward=1
+PostUp = iptables -t mangle -A FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true
+PostUp = ip route replace 10.88.1.0/24 via 172.20.0.10
+PostDown = iptables -t mangle -D FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true
+PostDown = ip route del 10.88.1.0/24 via 172.20.0.10
+
+[Peer]
+PublicKey = <gateway_public_key>
+AllowedIPs = 10.99.0.1/32
+```
+
+> 実装時は `AllowedIPs`/route のどちらで `10.88.1.0/24` を流すかを統一する  
+> （wg0 に `AllowedIPs` で持たせる or `ip route add 10.88.1.0/24 dev wg0`）。
+> MTU は `ESB_WG_MTU` で調整可能（WSL/Hyper-V では 1340 前後が安定しやすい）。
 
 ### C-2: microVM 内 Runtime Supervisor を実装
 - Runtime API 互換の **Supervisor** を用意（init/invoke/shutdown）。

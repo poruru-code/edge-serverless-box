@@ -215,6 +215,23 @@ def main():
         help="devmapper base image size (default: 10GB)",
     )
     node_provision_parser.add_argument(
+        "--wg-conf",
+        help="WireGuard wg0.conf for compute node (default: ~/.esb/wireguard/compute/wg0.conf)",
+    )
+    node_provision_parser.add_argument(
+        "--wg-subnet",
+        help="WireGuard subnet for this node (default: 10.88.<index>.0/24)",
+    )
+    node_provision_parser.add_argument(
+        "--wg-runtime-ip",
+        help="runtime-node external IP used for route (default: 172.20.0.10)",
+    )
+    node_provision_parser.add_argument(
+        "--wg-endpoint-port",
+        type=int,
+        help="WireGuard listen port on compute node (default: 51820)",
+    )
+    node_provision_parser.add_argument(
         "--devmapper-udev",
         dest="devmapper_udev",
         action="store_true",

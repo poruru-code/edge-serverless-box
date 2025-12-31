@@ -49,8 +49,8 @@
 - 経路: gateway -> `worker.ip:8080`
 
 3) Worker -> Gateway（Lambda chain invoke）
-- 経路: worker -> `https://10.88.0.1:443`
-- 443 は DNAT 不要（gateway は runtime-node NetNS 上に常駐）
+- WG モード: worker -> `https://10.99.0.1:443`
+- Phase B（gateway が runtime-node NetNS 上）: worker -> `https://10.88.0.1:443`（DNAT 不要）
 
 4) Worker -> S3 / DynamoDB / VictoriaLogs
 - 経路: worker -> `10.88.0.1:9000|8001|9428`
@@ -85,7 +85,7 @@ runtime-node の entrypoint が以下を設定します:
 - `DNAT_DB_PORT`（既定: `8000`）
 - `DNAT_DB_DPORT`（既定: `8001`）
 - `DNAT_APPLY_OUTPUT`（既定: `1`）
-- `GATEWAY_INTERNAL_URL`（既定: `https://10.88.0.1:443`）
+- `GATEWAY_INTERNAL_URL`（既定: `https://10.99.0.1:443`。Phase B は `https://10.88.0.1:443`）
 - `VICTORIALOGS_URL`（既定: `http://10.88.0.1:9428`）
 
 ## local-proxy（HAProxy）設定

@@ -139,7 +139,6 @@ services:
     container_name: esb-runtime-node
     privileged: true
     ports:
-      - "443:443"
       - "50051:50051"
     volumes:
       - runtime_containerd_run:/run/containerd
@@ -151,6 +150,9 @@ services:
       - DNAT_DB_IP=127.0.0.1
       - DNAT_VL_IP=127.0.0.1
       - DNAT_DB_PORT=8001
+      - WG_CONTROL_NET=${WG_CONTROL_NET:-}
+      - WG_CONTROL_GW=${WG_CONTROL_GW:-}
+      - WG_CONTROL_GW_HOST=${WG_CONTROL_GW_HOST:-gateway}
       - DNAT_APPLY_OUTPUT=1
     healthcheck:
       test: ["CMD", "ctr", "-a", "/run/containerd/containerd.sock", "version"]
@@ -185,13 +187,18 @@ services:
       context: .
       dockerfile: services/gateway/Dockerfile
     container_name: esb-gateway
-    # runtime-node NetNS: Gateway listens on 0.0.0.0:443
-    network_mode: "service:runtime-node"
+    ports:
+      - "443:443"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
       - ${ESB_CERT_DIR:-~/.esb/certs}/server.crt:/app/config/ssl/server.crt:ro
       - ${ESB_CERT_DIR:-~/.esb/certs}/server.key:/app/config/ssl/server.key:ro
       - ${GATEWAY_FUNCTIONS_YML:-./config/functions.yml}:/app/config/functions.yml:ro
       - ${GATEWAY_ROUTING_YML:-./config/routing.yml}:/app/config/routing.yml:ro
+      - ${ESB_WG_GATEWAY_CONF:-~/.esb/wireguard/gateway/wg0.conf}:/app/config/wireguard/wg0.conf:ro
     environment:
       - UVICORN_BIND_ADDR=0.0.0.0:443
       - ENABLE_SSL=true
@@ -202,8 +209,8 @@ services:
       - AUTH_USER=${AUTH_USER?AUTH_USER is required}
       - AUTH_PASS=${AUTH_PASS?AUTH_PASS is required}
       - CONTAINERS_NETWORK=${LAMBDA_NETWORK?LAMBDA_NETWORK is required}
-      - GATEWAY_INTERNAL_URL=https://10.88.0.1:443  # Lambda containers -> Host Network Gateway (CNI bridge)
-      - AGENT_GRPC_ADDRESS=localhost:50051  # Host Network
+      - GATEWAY_INTERNAL_URL=${GATEWAY_INTERNAL_URL:-https://10.99.0.1:443}  # Lambda containers -> Gateway via WG
+      - AGENT_GRPC_ADDRESS=runtime-node:50051
       - AGENT_INVOKE_PROXY=${AGENT_INVOKE_PROXY:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY?RUSTFS_ACCESS_KEY is required}
@@ -213,7 +220,7 @@ services:
       - CIRCUIT_BREAKER_RECOVERY_TIMEOUT=${CIRCUIT_BREAKER_RECOVERY_TIMEOUT:-30.0}
       - PYTHONUNBUFFERED=1
       # VictoriaLogs direct-send configuration (Lambda via grpc_provision.py)
-      - VICTORIALOGS_URL=http://10.88.0.1:9428  # CNI bridge gateway (DNAT)
+      - VICTORIALOGS_URL=${VICTORIALOGS_URL:-http://victorialogs:9428}  # Gateway -> VictoriaLogs
       - GATEWAY_VICTORIALOGS_URL=${GATEWAY_VICTORIALOGS_URL:-}
       # Auto-Scaling Configuration
       - DEFAULT_MAX_CAPACITY=${DEFAULT_MAX_CAPACITY:-1}
@@ -223,6 +230,8 @@ services:
       - GATEWAY_IDLE_TIMEOUT_SECONDS=${GATEWAY_IDLE_TIMEOUT_SECONDS:-300}
       - ENABLE_CONTAINER_PAUSE=${ENABLE_CONTAINER_PAUSE:-false}
       - PAUSE_IDLE_SECONDS=${PAUSE_IDLE_SECONDS:-30}
+    networks:
+      - external_network
     depends_on:
       runtime-node:
         condition: service_healthy
@@ -249,7 +258,7 @@ services:
       - NET_ADMIN
       - SYS_ADMIN
     pid: "container:esb-runtime-node"
-    # runtime-node NetNS: Agent listens on localhost:50051
+    # runtime-node NetNS: Agent listens on :50051
     network_mode: "service:runtime-node"
     volumes:
       - runtime_containerd_run:/run/containerd  # Required for socket, fifo, and shim access

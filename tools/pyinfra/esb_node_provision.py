@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pyinfra import host
 from pyinfra.operations import apt, files, server
 
@@ -18,6 +20,7 @@ DEFAULT_PACKAGES = [
     "socat",
     "sudo",
     "util-linux",
+    "wireguard-tools",
 ]
 
 DEFAULT_GROUPS = ["kvm", "docker"]
@@ -141,6 +144,10 @@ devmapper_data_size = host.data.get("esb_devmapper_data_size") or "10G"
 devmapper_meta_size = host.data.get("esb_devmapper_meta_size") or "2G"
 devmapper_base_image_size = host.data.get("esb_devmapper_base_image_size") or "10GB"
 devmapper_udev = _get_bool("esb_devmapper_udev", True)
+
+wireguard_conf_src = host.data.get("esb_wireguard_conf") or ""
+wireguard_iface = host.data.get("esb_wireguard_interface") or "wg0"
+wireguard_enable = _get_bool("esb_wireguard_enable", True)
 
 
 apt.packages(
@@ -625,6 +632,53 @@ for module in ["kvm", "vhost_vsock", "tun"]:
         name=f"Load kernel module {module}",
         module=module,
     )
+
+if wireguard_conf_src and Path(wireguard_conf_src).exists():
+    files.directory(
+        name="Ensure WireGuard config directory exists",
+        path="/etc/wireguard",
+        present=True,
+        recursive=True,
+        mode="0700",
+    )
+    files.put(
+        name="Upload WireGuard config",
+        src=wireguard_conf_src,
+        dest=f"/etc/wireguard/{wireguard_iface}.conf",
+        mode="0600",
+    )
+    server.shell(
+        name="Enable IP forwarding for WireGuard",
+        commands=[
+            "\n".join(
+                [
+                    "set -eu",
+                    _write_file_command("/etc/sysctl.d/99-esb-wireguard.conf", "net.ipv4.ip_forward=1\n"),
+                    "sysctl -w net.ipv4.ip_forward=1",
+                ]
+            )
+        ],
+    )
+    if wireguard_enable:
+        server.shell(
+            name="Enable WireGuard interface",
+            commands=[
+                "\n".join(
+                    [
+                        "set -eu",
+                        f"iface=\"{wireguard_iface}\"",
+                        f"conf=\"/etc/wireguard/{wireguard_iface}.conf\"",
+                        "if [ ! -f \"$conf\" ]; then exit 0; fi",
+                        "if ip link show \"$iface\" >/dev/null 2>&1; then exit 0; fi",
+                        "if command -v systemctl >/dev/null 2>&1; then",
+                        "  systemctl enable --now \"wg-quick@${iface}\" || true",
+                        "else",
+                        "  wg-quick up \"$conf\" || true",
+                        "fi",
+                    ]
+                )
+            ],
+        )
 
 server.service(
     name="Ensure Docker is enabled and running",

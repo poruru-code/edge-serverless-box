@@ -36,6 +36,10 @@ def _args(**overrides):
         devmapper_meta_size=None,
         devmapper_base_image_size=None,
         devmapper_udev=None,
+        wg_conf=None,
+        wg_subnet=None,
+        wg_runtime_ip=None,
+        wg_endpoint_port=None,
         verbose=0,
     )
     base.update(overrides)
@@ -136,6 +140,10 @@ def test_doctor_via_ssh_ok():
         "cmd_firecracker_containerd": True,
         "cmd_firecracker_ctr": True,
         "cmd_containerd_shim_aws_firecracker": True,
+        "cmd_wg": True,
+        "cmd_wg_quick": True,
+        "wg_conf": True,
+        "wg_up": True,
         "fc_kernel": True,
         "fc_rootfs": True,
         "fc_containerd_config": True,
@@ -161,6 +169,20 @@ def test_doctor_via_ssh_ok():
     assert response["fc_runtime_config"] is True
     assert response["fc_runc_config"] is True
     assert response["devmapper_pool"] is True
+
+
+def test_doctor_via_ssh_uses_sudo_when_nopasswd():
+    args = _args()
+    node = {"host": "10.0.0.5", "user": "esb", "port": 22, "sudo_nopasswd": True}
+    payload = {"dev_kvm": True, "dev_vhost_vsock": True, "dev_tun": True}
+    result = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    with patch.object(node_cmd, "_ssh_options", return_value=[]), patch(
+        "tools.cli.commands.node.subprocess.run", return_value=result
+    ) as mock_run:
+        node_cmd._doctor_via_ssh(node, args)
+
+    assert "sudo" in mock_run.call_args[0][0]
 
 
 def test_doctor_via_ssh_invalid_json():
@@ -219,7 +241,9 @@ def test_run_provision_sudo_nopasswd_no_prompt(tmp_path):
 
     with patch.object(node_cmd, "_ensure_pyinfra"), patch.object(
         node_cmd, "_select_nodes", return_value=nodes
-    ), patch.object(node_cmd, "_prompt_secret", side_effect=AssertionError("prompted")), patch.object(
+    ), patch.object(node_cmd, "_ensure_wireguard_configs"), patch.object(
+        node_cmd, "_prompt_secret", side_effect=AssertionError("prompted")
+    ), patch.object(
         node_cmd, "_run_pyinfra_deploy", side_effect=_capture
     ), patch.object(node_cmd, "_default_identity_file", return_value=None):
         node_cmd._run_provision(args)
@@ -243,7 +267,9 @@ def test_run_provision_prompts_for_sudo(tmp_path):
 
     with patch.object(node_cmd, "_ensure_pyinfra"), patch.object(
         node_cmd, "_select_nodes", return_value=nodes
-    ), patch.object(node_cmd, "_prompt_secret", return_value="sudopass") as mock_prompt, patch.object(
+    ), patch.object(node_cmd, "_ensure_wireguard_configs"), patch.object(
+        node_cmd, "_prompt_secret", return_value="sudopass"
+    ) as mock_prompt, patch.object(
         node_cmd, "_run_pyinfra_deploy", side_effect=_capture
     ), patch.object(node_cmd, "_default_identity_file", return_value=None):
         node_cmd._run_provision(args)
@@ -266,7 +292,9 @@ def test_run_provision_prompts_for_sudo_when_bootstrapping_nopasswd(tmp_path):
 
     with patch.object(node_cmd, "_ensure_pyinfra"), patch.object(
         node_cmd, "_select_nodes", return_value=nodes
-    ), patch.object(node_cmd, "_prompt_secret", return_value="sudopass") as mock_prompt, patch.object(
+    ), patch.object(node_cmd, "_ensure_wireguard_configs"), patch.object(
+        node_cmd, "_prompt_secret", return_value="sudopass"
+    ) as mock_prompt, patch.object(
         node_cmd, "_run_pyinfra_deploy", side_effect=_capture
     ), patch.object(node_cmd, "_default_identity_file", return_value=None):
         node_cmd._run_provision(args)
@@ -295,9 +323,11 @@ def test_run_provision_passes_firecracker_settings(tmp_path):
 
     with patch.object(node_cmd, "_ensure_pyinfra"), patch.object(
         node_cmd, "_select_nodes", return_value=nodes
-    ), patch.object(node_cmd, "_run_pyinfra_deploy", side_effect=_capture), patch.object(
-        node_cmd, "_default_identity_file", return_value=None
-    ):
+    ), patch.object(node_cmd, "_ensure_wireguard_configs"), patch.object(
+        node_cmd, "_prompt_secret", return_value="sudopass"
+    ), patch.object(
+        node_cmd, "_run_pyinfra_deploy", side_effect=_capture
+    ), patch.object(node_cmd, "_default_identity_file", return_value=None):
         node_cmd._run_provision(args)
 
     data = captured["inventory_hosts"][0][1]
@@ -327,7 +357,9 @@ def test_run_provision_skips_prompt_when_nopasswd_set(tmp_path):
 
     with patch.object(node_cmd, "_ensure_pyinfra"), patch.object(
         node_cmd, "_select_nodes", return_value=nodes
-    ), patch.object(node_cmd, "_prompt_secret", side_effect=AssertionError("prompted")), patch.object(
+    ), patch.object(node_cmd, "_ensure_wireguard_configs"), patch.object(
+        node_cmd, "_prompt_secret", side_effect=AssertionError("prompted")
+    ), patch.object(
         node_cmd, "_run_pyinfra_deploy", side_effect=_capture
     ), patch.object(node_cmd, "_default_identity_file", return_value=None):
         node_cmd._run_provision(args)
@@ -363,9 +395,11 @@ def test_run_provision_passes_firecracker_assets_and_devmapper(tmp_path):
 
     with patch.object(node_cmd, "_ensure_pyinfra"), patch.object(
         node_cmd, "_select_nodes", return_value=nodes
-    ), patch.object(node_cmd, "_run_pyinfra_deploy", side_effect=_capture), patch.object(
-        node_cmd, "_default_identity_file", return_value=None
-    ):
+    ), patch.object(node_cmd, "_ensure_wireguard_configs"), patch.object(
+        node_cmd, "_prompt_secret", return_value="sudopass"
+    ), patch.object(
+        node_cmd, "_run_pyinfra_deploy", side_effect=_capture
+    ), patch.object(node_cmd, "_default_identity_file", return_value=None):
         node_cmd._run_provision(args)
 
     data = captured["inventory_hosts"][0][1]

@@ -47,7 +47,7 @@ cp .env.example .env
 | `LAMBDA_NETWORK` | Lambda コンテナが接続する内部ネットワーク名 | `onpre-internal-network` | Gateway, Go Agent, docker-compose |
 | `EXTERNAL_NETWORK` | 外部公開用ネットワーク名 | `onpre-external` | docker-compose |
 | `CONTAINERS_NETWORK` | Gateway が管理するコンテナのネットワーク（`LAMBDA_NETWORK` と同義） | `onpre-internal-network` | Gateway |
-| `GATEWAY_INTERNAL_URL` | Lambda コンテナから見た Gateway の URL | `https://10.88.0.1:443` | Gateway |
+| `GATEWAY_INTERNAL_URL` | Lambda コンテナから見た Gateway の URL（WG 経由: `https://10.99.0.1:443`） | `https://10.99.0.1:443` | Gateway |
 
 ---
 
@@ -118,7 +118,7 @@ cp .env.example .env
 
 | 変数名 | デフォルト値 | 説明 |
 |--------|--------------|------|
-| `AGENT_GRPC_ADDRESS` | `esb-agent:50051` | Go Agent の gRPC アドレス（`docker-compose.yml` では `localhost:50051`） |
+| `AGENT_GRPC_ADDRESS` | `esb-agent:50051` | Go Agent の gRPC アドレス（`docker-compose.yml` では `runtime-node:50051`） |
 | `AGENT_INVOKE_PROXY` | `false` | Gateway が worker invoke を Agent 経由（L7 代理）で行うか |
 | `AGENT_RUNTIME` | `docker` | Agent のランタイム (`docker` または `containerd`) |
 | `CONTAINERD_RUNTIME` | `""` | containerd の runtime 名（`AGENT_RUNTIME=containerd` のとき有効。未指定ならデフォルト。例: `aws.firecracker`） |
@@ -139,6 +139,9 @@ cp .env.example .env
 | `DNAT_DB_DPORT` | `8001` | 10.88.0.1 側の DB 宛ポート | runtime-node |
 | `DNAT_DB_PORT` | `8000` | 転送先 DB の実ポート | runtime-node |
 | `DNAT_APPLY_OUTPUT` | `1` | `1` のとき OUTPUT へ DNAT を適用（SNAT/MASQUERADE も必要） | runtime-node |
+| `WG_CONTROL_NET` | `""` | Gateway へ到達するための制御系ネットワーク（例: `10.99.0.0/24`）。設定時は runtime-node 内にルートを追加 | runtime-node |
+| `WG_CONTROL_GW` | `""` | `WG_CONTROL_NET` の next-hop。未設定時は default gateway を使用 | runtime-node |
+| `WG_CONTROL_GW_HOST` | `gateway` | `WG_CONTROL_GW` 未設定時に名前解決するホスト名（例: `gateway`） | runtime-node |
 
 ### runtime-node (containerd) 設定
 
@@ -165,6 +168,11 @@ cp .env.example .env
 | `LOGS_ROOT_PATH` | `/logs` | ログ集約先のルートパス |
 | `GATEWAY_FUNCTIONS_YML` | `./config/functions.yml` | Gateway 用関数定義ファイル（ホスト側） |
 | `GATEWAY_ROUTING_YML` | `./config/routing.yml` | Gateway 用ルーティング定義ファイル（ホスト側） |
+| `ESB_WG_GATEWAY_CONF` | `~/.esb/wireguard/gateway/wg0.conf` | Gateway コンテナにマウントする WireGuard 設定ファイル | docker-compose |
+| `ESB_WG_COMPUTE_CONF` | `~/.esb/wireguard/compute/wg0.conf` | `esb node provision` が転送する Compute 側 WireGuard 設定ファイル | tools/cli |
+| `ESB_WG_MTU` | `1420` | WireGuard インターフェースの MTU。WSL/Hyper-V で TLS が不安定なら `1340` 前後に下げる | tools/cli |
+| `RUNTIME_NODE_IP` | `172.20.0.10` | Compute VM 上の runtime-node 固定IP（WireGuard ルートの next-hop） | docker-compose.fc.yml |
+| `RUNTIME_NET_SUBNET` | `172.20.0.0/16` | Compute VM 上の runtime-node 専用 bridge サブネット | docker-compose.fc.yml |
 
 ### その他
 
@@ -304,7 +312,7 @@ cp .env.example .env
 **原因**: `AGENT_GRPC_ADDRESS` が不正、または Go Agent が起動していません。
 
 **解決方法**:
-1. `AGENT_GRPC_ADDRESS` を環境に合わせて確認（`docker-compose.yml` では `localhost:50051`）
+1. `AGENT_GRPC_ADDRESS` を環境に合わせて確認（`docker-compose.yml` では `runtime-node:50051`）
 2. Go Agent コンテナが起動していることを確認
 
 ---

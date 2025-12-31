@@ -1,6 +1,8 @@
 import getpass
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -11,12 +13,29 @@ import yaml
 
 from tools.cli.core import logging
 
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        logging.warning(f"Invalid {name}={value}; using {default}.")
+        return default
+
 NODE_CONFIG_PATH = Path.home() / ".esb" / "nodes.yaml"
 KNOWN_HOSTS_PATH = Path.home() / ".esb" / "known_hosts"
 PYINFRA_DEPLOY_PATH = Path(__file__).resolve().parents[2] / "pyinfra" / "esb_node_provision.py"
 ESB_KEY_DIR = Path.home() / ".esb"
 ESB_KEY_PATH = ESB_KEY_DIR / "id_ed25519"
 ESB_PUBKEY_PATH = ESB_KEY_DIR / "id_ed25519.pub"
+ESB_WG_DIR = ESB_KEY_DIR / "wireguard"
+ESB_WG_COMPUTE_CONF = ESB_WG_DIR / "compute" / "wg0.conf"
+DEFAULT_WG_CONF = Path("config/wireguard/compute/wg0.conf")
+ESB_WG_GATEWAY_DIR = ESB_WG_DIR / "gateway"
+ESB_WG_GATEWAY_CONF = ESB_WG_GATEWAY_DIR / "wg0.conf"
+DEFAULT_WG_MTU = _env_int("ESB_WG_MTU", 1420)
 
 REMOTE_PAYLOAD_PY = """import json
 import os
@@ -79,6 +98,11 @@ def _access_rw(path: str) -> bool:
 def _cmd_exists(cmd: str) -> bool:
     return subprocess.call(["/bin/sh", "-c", f"command -v {cmd} >/dev/null 2>&1"]) == 0
 
+def _link_exists(name: str) -> bool:
+    return subprocess.call(["/bin/sh", "-c", f"ip link show {name} >/dev/null 2>&1"]) == 0
+
+wg_iface = os.environ.get("ESB_WG_INTERFACE", "wg0")
+
 result = {
     "dev_kvm": _exists("/dev/kvm"),
     "dev_kvm_rw": _access_rw("/dev/kvm"),
@@ -90,6 +114,10 @@ result = {
     "cmd_firecracker_containerd": _cmd_exists("firecracker-containerd"),
     "cmd_firecracker_ctr": _cmd_exists("firecracker-ctr"),
     "cmd_containerd_shim_aws_firecracker": _cmd_exists("containerd-shim-aws-firecracker"),
+    "cmd_wg": _cmd_exists("wg"),
+    "cmd_wg_quick": _cmd_exists("wg-quick"),
+    "wg_conf": _exists(f"/etc/wireguard/{wg_iface}.conf"),
+    "wg_up": _link_exists(wg_iface),
     "fc_kernel": _exists(os.environ.get("ESB_FC_KERNEL_PATH", "/var/lib/firecracker-containerd/runtime/default-vmlinux.bin")),
     "fc_rootfs": _exists(os.environ.get("ESB_FC_ROOTFS_PATH", "/var/lib/firecracker-containerd/runtime/default-rootfs.img")),
     "fc_containerd_config": _exists(os.environ.get("ESB_FC_CONTAINERD_CONFIG", "/etc/firecracker-containerd/config.toml")),
@@ -182,10 +210,185 @@ def _default_identity_file() -> str | None:
     return None
 
 
+def _default_wireguard_conf() -> str | None:
+    env_path = os.environ.get("ESB_WG_COMPUTE_CONF")
+    candidates = [
+        env_path,
+        str(ESB_WG_COMPUTE_CONF),
+        str(DEFAULT_WG_CONF),
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate).expanduser()
+        if path.exists():
+            return str(path)
+    return None
+
+
 def _normalize_path(value: str | None) -> str | None:
     if not value:
         return None
     return str(Path(value).expanduser())
+
+
+def _require_wg() -> None:
+    if shutil.which("wg") is None:
+        logging.error("WireGuard tools not found. Install `wireguard-tools` on the control host.")
+        sys.exit(1)
+
+
+def _run_cmd(cmd: list[str], input_text: str | None = None) -> str:
+    result = subprocess.run(
+        cmd,
+        input=input_text,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _ensure_wg_keypair(directory: Path) -> tuple[Path, Path]:
+    _require_wg()
+    directory.mkdir(parents=True, exist_ok=True)
+    priv_path = directory / "privatekey"
+    pub_path = directory / "publickey"
+
+    if not priv_path.exists():
+        priv_key = _run_cmd(["wg", "genkey"])
+        priv_path.write_text(priv_key + "\n")
+        os.chmod(priv_path, 0o600)
+
+    if not pub_path.exists():
+        priv_key = priv_path.read_text().strip()
+        pub_key = _run_cmd(["wg", "pubkey"], input_text=priv_key)
+        pub_path.write_text(pub_key + "\n")
+        os.chmod(pub_path, 0o644)
+
+    return priv_path, pub_path
+
+
+def _sanitize_name(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", value)
+
+
+def _ensure_gateway_conf(gateway_priv: str, gateway_addr: str) -> Path:
+    ESB_WG_GATEWAY_DIR.mkdir(parents=True, exist_ok=True)
+    if not ESB_WG_GATEWAY_CONF.exists():
+        content = "\n".join(
+            [
+                "[Interface]",
+                f"Address = {gateway_addr}",
+                f"PrivateKey = {gateway_priv}",
+                f"MTU = {DEFAULT_WG_MTU}",
+                "",
+            ]
+        )
+        ESB_WG_GATEWAY_CONF.write_text(content)
+        os.chmod(ESB_WG_GATEWAY_CONF, 0o600)
+        return ESB_WG_GATEWAY_CONF
+
+    content = ESB_WG_GATEWAY_CONF.read_text()
+    mtu_line = f"MTU = {DEFAULT_WG_MTU}"
+    if re.search(r"(?m)^MTU\s*=", content):
+        updated = re.sub(r"(?m)^MTU\s*=.*$", mtu_line, content, count=1)
+    elif re.search(r"(?m)^PrivateKey\s*=", content):
+        updated = re.sub(
+            r"(?m)^PrivateKey\s*=.*$",
+            lambda match: f"{match.group(0)}\n{mtu_line}",
+            content,
+            count=1,
+        )
+    elif re.search(r"(?m)^Address\s*=", content):
+        updated = re.sub(
+            r"(?m)^Address\s*=.*$",
+            lambda match: f"{match.group(0)}\n{mtu_line}",
+            content,
+            count=1,
+        )
+    else:
+        updated = content.rstrip("\n") + f"\n{mtu_line}\n"
+
+    if updated != content:
+        ESB_WG_GATEWAY_CONF.write_text(updated.rstrip("\n") + "\n")
+        os.chmod(ESB_WG_GATEWAY_CONF, 0o600)
+    return ESB_WG_GATEWAY_CONF
+
+
+def _upsert_gateway_peer(
+    conf_path: Path,
+    node_name: str,
+    compute_pub: str,
+    endpoint: str,
+    allowed_ips: str,
+) -> None:
+    marker = f"# esb-node:{node_name}"
+    block = "\n".join(
+        [
+            marker,
+            "[Peer]",
+            f"PublicKey = {compute_pub}",
+            f"Endpoint = {endpoint}",
+            f"AllowedIPs = {allowed_ips}",
+            "PersistentKeepalive = 25",
+            "",
+        ]
+    )
+
+    content = conf_path.read_text() if conf_path.exists() else ""
+    if marker in content:
+        pattern = re.compile(rf"{re.escape(marker)}\\n\\[Peer\\][\\s\\S]*?(?=\\n# esb-node:|\\Z)")
+        content = pattern.sub(block.rstrip("\n"), content)
+        if f"AllowedIPs = {allowed_ips}" not in content:
+            content = re.sub(
+                rf"({re.escape(marker)}[\\s\\S]*?\\nAllowedIPs = ).*",
+                rf"\\1{allowed_ips}",
+                content,
+                count=1,
+            )
+    elif compute_pub in content:
+        return
+    else:
+        content = content.rstrip("\n") + "\n\n" + block
+
+    conf_path.write_text(content.rstrip("\n") + "\n")
+    os.chmod(conf_path, 0o600)
+
+
+def _write_compute_conf(
+    conf_path: Path,
+    compute_priv: str,
+    compute_addr: str,
+    listen_port: int,
+    gateway_pub: str,
+    gateway_allowed: str,
+    subnet: str,
+    runtime_ip: str,
+) -> None:
+    content = "\n".join(
+        [
+            "[Interface]",
+            f"Address = {compute_addr}",
+            f"ListenPort = {listen_port}",
+            f"PrivateKey = {compute_priv}",
+            f"MTU = {DEFAULT_WG_MTU}",
+            "PostUp = sysctl -w net.ipv4.ip_forward=1",
+            "PostUp = iptables -t mangle -A FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true",
+            f"PostUp = ip route replace {subnet} via {runtime_ip}",
+            "PostDown = iptables -t mangle -D FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true",
+            f"PostDown = ip route del {subnet} via {runtime_ip}",
+            "",
+            "[Peer]",
+            f"PublicKey = {gateway_pub}",
+            f"AllowedIPs = {gateway_allowed}",
+            "",
+        ]
+    )
+    conf_path.parent.mkdir(parents=True, exist_ok=True)
+    conf_path.write_text(content)
+    os.chmod(conf_path, 0o600)
 
 
 def _install_public_key(
@@ -522,14 +725,17 @@ def _doctor_via_ssh(node: dict[str, Any], args) -> dict[str, Any]:
     user = node["user"]
     port = int(node.get("port", 22))
 
+    remote_exec = ["python3", "-"]
+    if node.get("sudo_nopasswd"):
+        remote_exec = ["sudo", "-n", "python3", "-"]
+
     cmd = [
         "ssh",
         "-p",
         str(port),
         *(_ssh_options(args, node)),
         f"{user}@{host}",
-        "python3",
-        "-",
+        *remote_exec,
     ]
 
     try:
@@ -562,7 +768,13 @@ def _doctor_via_ssh(node: dict[str, Any], args) -> dict[str, Any]:
         }
 
     required = payload.get("dev_kvm") and payload.get("dev_vhost_vsock") and payload.get("dev_tun")
-    payload["ok"] = bool(required)
+    wireguard_ready = (
+        payload.get("cmd_wg")
+        and payload.get("cmd_wg_quick")
+        and payload.get("wg_conf")
+        and payload.get("wg_up")
+    )
+    payload["ok"] = bool(required and wireguard_ready)
     return payload
 
 
@@ -588,6 +800,10 @@ def _render_doctor(name: str, host: str, port: int, result: dict[str, Any]) -> N
         ("cmd_firecracker_containerd", result.get("cmd_firecracker_containerd")),
         ("cmd_firecracker_ctr", result.get("cmd_firecracker_ctr")),
         ("cmd_containerd_shim_aws_firecracker", result.get("cmd_containerd_shim_aws_firecracker")),
+        ("cmd_wg", result.get("cmd_wg")),
+        ("cmd_wg_quick", result.get("cmd_wg_quick")),
+        ("wg_conf", result.get("wg_conf")),
+        ("wg_up", result.get("wg_up")),
         ("fc_kernel", result.get("fc_kernel")),
         ("fc_rootfs", result.get("fc_rootfs")),
         ("fc_containerd_config", result.get("fc_containerd_config")),
@@ -701,6 +917,17 @@ def _build_inventory_hosts(
         if getattr(args, "devmapper_udev", None) is not None:
             data["esb_devmapper_udev"] = bool(args.devmapper_udev)
 
+        wireguard_conf = _normalize_path(getattr(args, "wg_conf", None))
+        if wireguard_conf and not Path(wireguard_conf).exists():
+            logging.warning(f"WireGuard config not found: {wireguard_conf}")
+            wireguard_conf = None
+        if not wireguard_conf:
+            wireguard_conf = _normalize_path(node.get("wg_conf")) or _default_wireguard_conf()
+        if wireguard_conf and Path(wireguard_conf).exists():
+            data["esb_wireguard_conf"] = wireguard_conf
+            data["esb_wireguard_interface"] = node.get("wg_interface") or "wg0"
+            data["esb_wireguard_enable"] = True
+
         identity_file = (
             _normalize_path(args.identity_file)
             or _normalize_path(node.get("identity_file"))
@@ -720,6 +947,85 @@ def _build_inventory_hosts(
         entries.append((host, data))
 
     return entries
+
+
+def _ensure_wireguard_configs(args, nodes: list[dict[str, Any]]) -> None:
+    if not nodes:
+        return
+    if getattr(args, "wg_conf", None):
+        return
+
+    _require_wg()
+    gateway_priv_path, gateway_pub_path = _ensure_wg_keypair(ESB_WG_GATEWAY_DIR)
+    gateway_priv = gateway_priv_path.read_text().strip()
+    gateway_pub = gateway_pub_path.read_text().strip()
+    gateway_addr = getattr(args, "wg_gateway_addr", None) or "10.99.0.1/24"
+    gateway_allowed = gateway_addr.split("/")[0] + "/32"
+    gateway_conf = _ensure_gateway_conf(gateway_priv, gateway_addr)
+
+    data = _load_nodes()
+    node_map = {node.get("id") or node.get("host"): node for node in data.get("nodes", [])}
+
+    for index, node in enumerate(nodes):
+        node_id = node.get("id") or node.get("host")
+        node_name = node.get("name") or node.get("host") or f"node-{index+1}"
+        safe_name = _sanitize_name(node_name)
+        wg_subnet = node.get("wg_subnet") or getattr(args, "wg_subnet", None) or f"10.88.{index+1}.0/24"
+        runtime_ip = node.get("wg_runtime_ip") or getattr(args, "wg_runtime_ip", None) or "172.20.0.10"
+        endpoint_port = int(getattr(args, "wg_endpoint_port", None) or node.get("wg_endpoint_port") or 51820)
+        compute_addr = node.get("wg_compute_addr") or f"10.99.0.{index+2}/32"
+        endpoint_host = node.get("host")
+
+        compute_dir = ESB_WG_DIR / "compute" / safe_name
+        compute_priv_path, compute_pub_path = _ensure_wg_keypair(compute_dir)
+        compute_priv = compute_priv_path.read_text().strip()
+        compute_pub = compute_pub_path.read_text().strip()
+        compute_conf = compute_dir / "wg0.conf"
+        _write_compute_conf(
+            compute_conf,
+            compute_priv,
+            compute_addr,
+            endpoint_port,
+            gateway_pub,
+            gateway_allowed,
+            wg_subnet,
+            runtime_ip,
+        )
+        gateway_allowed_ips = f"{wg_subnet}, {compute_addr}"
+        _upsert_gateway_peer(
+            gateway_conf,
+            safe_name,
+            compute_pub,
+            f"{endpoint_host}:{endpoint_port}",
+            gateway_allowed_ips,
+        )
+
+        node.update(
+            {
+                "wg_conf": str(compute_conf),
+                "wg_subnet": wg_subnet,
+                "wg_runtime_ip": runtime_ip,
+                "wg_endpoint_port": endpoint_port,
+                "wg_compute_addr": compute_addr,
+                "wg_gateway_addr": gateway_addr,
+                "wg_interface": "wg0",
+            }
+        )
+
+        if node_id in node_map:
+            node_map[node_id].update(
+                {
+                    "wg_conf": str(compute_conf),
+                    "wg_subnet": wg_subnet,
+                    "wg_runtime_ip": runtime_ip,
+                    "wg_endpoint_port": endpoint_port,
+                    "wg_compute_addr": compute_addr,
+                    "wg_gateway_addr": gateway_addr,
+                    "wg_interface": "wg0",
+                }
+            )
+
+    _save_nodes(data)
 
 
 def _run_pyinfra_deploy(
@@ -782,6 +1088,8 @@ def _run_provision(args) -> None:
     if not nodes:
         logging.error("No nodes found. Run `esb node add` first.")
         sys.exit(1)
+
+    _ensure_wireguard_configs(args, nodes)
 
     ssh_password = _normalize_secret(args.password)
     sudo_password = _normalize_secret(args.sudo_password)

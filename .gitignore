@@ -69,5 +69,7 @@ build/lambda-images/*.tar
 
 # ESB artifacts
 .esb/
+# WireGuard configs (local secrets)
+config/wireguard/**/wg0.conf
 # Go Agent Binary
 services/agent/agent*
