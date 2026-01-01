@@ -1,3 +1,6 @@
+# Where: tools/cli/commands/build.py
+# What: Build ESB images and generated configs.
+# Why: Provide a single CLI entry for build workflows.
 import docker
 import os
 import sys
@@ -5,6 +8,9 @@ import subprocess
 from pathlib import Path
 from tools.generator import main as generator
 from tools.cli import config as cli_config
+from tools.cli import compose as cli_compose
+from tools.cli import runtime_mode
+from tools.cli import build_service_images
 from tools.cli.core import logging
 
 # Directory for the ESB Lambda base image.
@@ -35,7 +41,7 @@ def ensure_registry_running():
     logging.warning(f"Registry ({registry}) is not running. Starting it now...")
     try:
         subprocess.check_call(
-            ["docker", "compose", "up", "-d", "registry"],
+            cli_compose.build_compose_command(["up", "-d", "registry"], target="control"),
             cwd=cli_config.PROJECT_ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -197,9 +203,6 @@ def run(args):
     if dry_run:
         logging.info("Running in DRY-RUN mode. No files will be written, no images built.")
 
-    # 0. Ensure registry is running (when required).
-    ensure_registry_running()
-
     # 1. Generate configuration files (Phase 1 Generator).
     logging.step("Generating configurations...")
     logging.info(f"Using template: {logging.highlight(cli_config.TEMPLATE_YAML)}")
@@ -223,6 +226,10 @@ def run(args):
         else:
             logging.error("Configuration file missing. Cannot proceed.")
             return
+
+    # 0. Ensure registry is running (when required).
+    if not dry_run:
+        ensure_registry_running()
 
     config = generator.load_config(config_path)
 
@@ -259,5 +266,9 @@ def run(args):
         no_cache=no_cache,
         verbose=verbose,
     )
+
+    if runtime_mode.get_mode() == cli_config.ESB_MODE_FIRECRACKER:
+        if not build_service_images.build_and_push(no_cache=no_cache):
+            sys.exit(1)
 
     logging.success("Build complete.")

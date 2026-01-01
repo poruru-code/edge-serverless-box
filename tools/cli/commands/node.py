@@ -1,17 +1,25 @@
+# Where: tools/cli/commands/node.py
+# What: Manage compute nodes (register, provision, and lifecycle actions).
+# Why: Provide CLI workflows for remote compute operations.
 import getpass
 import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
 from tools.cli.core import logging
+from tools.cli import config as cli_config
+from tools.cli import compose as cli_compose
+from tools.cli import runtime_mode
 
 
 def _env_int(name: str, default: int) -> int:
@@ -36,6 +44,7 @@ DEFAULT_WG_CONF = Path("config/wireguard/compute/wg0.conf")
 ESB_WG_GATEWAY_DIR = ESB_WG_DIR / "gateway"
 ESB_WG_GATEWAY_CONF = ESB_WG_GATEWAY_DIR / "wg0.conf"
 DEFAULT_WG_MTU = _env_int("ESB_WG_MTU", 1420)
+REMOTE_COMPOSE_DIR = cli_config.REMOTE_COMPOSE_DIR
 
 REMOTE_PAYLOAD_PY = """import json
 import os
@@ -101,7 +110,22 @@ def _cmd_exists(cmd: str) -> bool:
 def _link_exists(name: str) -> bool:
     return subprocess.call(["/bin/sh", "-c", f"ip link show {name} >/dev/null 2>&1"]) == 0
 
+def _docker_running_names():
+    if not _cmd_exists("docker"):
+        return set()
+    try:
+        out = subprocess.check_output(["/bin/sh", "-c", "docker ps --format '{{.Names}}'"])
+        names = [line.strip() for line in out.decode().splitlines() if line.strip()]
+        return set(names)
+    except Exception:
+        return set()
+
 wg_iface = os.environ.get("ESB_WG_INTERFACE", "wg0")
+running_names = _docker_running_names()
+runtime_node_up = "esb-runtime-node" in running_names
+local_proxy_up = "esb-local-proxy" in running_names
+agent_up = "esb-agent" in running_names
+node_up = runtime_node_up and local_proxy_up and agent_up
 
 result = {
     "dev_kvm": _exists("/dev/kvm"),
@@ -127,6 +151,10 @@ result = {
     "cmd_dmsetup": _cmd_exists("dmsetup"),
     "cmd_docker": _cmd_exists("docker"),
     "cmd_containerd": _cmd_exists("containerd"),
+    "runtime_node_up": runtime_node_up,
+    "local_proxy_up": local_proxy_up,
+    "agent_up": agent_up,
+    "node_up": node_up,
     "kernel": platform.release(),
     "arch": platform.machine(),
 }
@@ -236,6 +264,29 @@ def _require_wg() -> None:
     if shutil.which("wg") is None:
         logging.error("WireGuard tools not found. Install `wireguard-tools` on the control host.")
         sys.exit(1)
+
+
+def _resolve_control_host() -> str | None:
+    value = os.environ.get("ESB_CONTROL_HOST")
+    if value:
+        return value
+    gateway_url = os.environ.get("GATEWAY_INTERNAL_URL")
+    if not gateway_url:
+        return None
+    parsed = urlparse(gateway_url)
+    return parsed.hostname
+
+
+def _resolve_control_registry(control_host: str | None) -> str | None:
+    registry = os.environ.get("CONTAINER_REGISTRY")
+    if registry:
+        return registry
+    if not control_host:
+        return None
+    port = os.environ.get("REGISTRY_PORT", "5010").strip()
+    if not port:
+        return None
+    return f"{control_host}:{port}"
 
 
 def _run_cmd(cmd: list[str], input_text: str | None = None) -> str:
@@ -376,9 +427,9 @@ def _write_compute_conf(
             f"MTU = {DEFAULT_WG_MTU}",
             "PostUp = sysctl -w net.ipv4.ip_forward=1",
             "PostUp = iptables -t mangle -A FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true",
-            f"PostUp = ip route replace {subnet} via {runtime_ip}",
+            f"PostUp = ip route replace {subnet} via {runtime_ip} || true",
             "PostDown = iptables -t mangle -D FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true",
-            f"PostDown = ip route del {subnet} via {runtime_ip}",
+            f"PostDown = ip route del {subnet} via {runtime_ip} || true",
             "",
             "[Peer]",
             f"PublicKey = {gateway_pub}",
@@ -443,6 +494,37 @@ def _install_public_key(
         client.close()
 
 
+def _resolve_identity_keypair(args, node: dict[str, Any]) -> tuple[Path, Path]:
+    identity_file = _normalize_path(getattr(args, "identity_file", None)) or _normalize_path(
+        node.get("identity_file")
+    )
+    if identity_file:
+        key_path = Path(identity_file).expanduser()
+        pub_path = Path(str(key_path) + ".pub")
+        if not key_path.exists() or not pub_path.exists():
+            raise FileNotFoundError(
+                f"SSH identity files not found: {key_path} / {pub_path}"
+            )
+        return key_path, pub_path
+    return _ensure_local_keypair()
+
+
+def _ssh_key_auth_ok(node: dict[str, Any], args, identity_file: Path) -> bool:
+    host, user, port = _node_ssh_target(node, args)
+    cmd = [
+        "ssh",
+        "-p",
+        str(port),
+        *_ssh_options(args, node, identity_file=str(identity_file)),
+        f"{user}@{host}",
+        "true",
+    ]
+    result = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10
+    )
+    return result.returncode == 0
+
+
 def _run_remote_python(
     host: str,
     user: str,
@@ -493,7 +575,9 @@ def _parse_target(args) -> tuple[str | None, str | None, int]:
     return host, user, port
 
 
-def _ssh_options(args, node: dict[str, Any] | None = None) -> list[str]:
+def _ssh_options(
+    args, node: dict[str, Any] | None = None, identity_file: str | None = None
+) -> list[str]:
     opts = [
         "-o",
         "StrictHostKeyChecking=accept-new",
@@ -507,14 +591,93 @@ def _ssh_options(args, node: dict[str, Any] | None = None) -> list[str]:
     if getattr(args, "ssh_option", None):
         for option in args.ssh_option:
             opts.extend(["-o", option])
-    identity_file = (
-        _normalize_path(getattr(args, "identity_file", None))
+    resolved_identity = (
+        identity_file
+        or _normalize_path(getattr(args, "identity_file", None))
         or _normalize_path((node or {}).get("identity_file"))
         or _default_identity_file()
     )
-    if identity_file and Path(identity_file).exists():
-        opts.extend(["-i", identity_file])
+    if resolved_identity and Path(resolved_identity).exists():
+        opts.extend(["-i", resolved_identity])
     return opts
+
+
+def _scp_options(args, node: dict[str, Any] | None = None) -> list[str]:
+    return _ssh_options(args, node)
+
+
+def _node_ssh_target(node: dict[str, Any], args) -> tuple[str, str, int]:
+    host = node.get("host")
+    user = args.user or node.get("user") or "root"
+    port = int(args.port or node.get("port") or 22)
+    return host, user, port
+
+
+def _remote_compose_dir() -> str:
+    return f"~/{REMOTE_COMPOSE_DIR}"
+
+
+def _run_remote_command(node: dict[str, Any], args, command: str) -> None:
+    host, user, port = _node_ssh_target(node, args)
+    # Quote the command so ssh preserves it as a single -c argument.
+    quoted_command = shlex.quote(command)
+    cmd = [
+        "ssh",
+        "-p",
+        str(port),
+        *_ssh_options(args, node),
+        f"{user}@{host}",
+        "sh",
+        "-c",
+        quoted_command,
+    ]
+    subprocess.run(cmd, check=True)
+
+
+def _run_scp(
+    node: dict[str, Any],
+    args,
+    local_path: Path,
+    remote_path: str,
+    recursive: bool = False,
+) -> None:
+    host, user, port = _node_ssh_target(node, args)
+    cmd = [
+        "scp",
+        "-P",
+        str(port),
+        *_scp_options(args, node),
+    ]
+    if recursive:
+        cmd.append("-r")
+    cmd.extend([str(local_path), f"{user}@{host}:{remote_path}"])
+    subprocess.run(cmd, check=True)
+
+
+def _upload_compose_files(
+    node: dict[str, Any],
+    args,
+    compose_files: list[Path],
+) -> list[str]:
+    remote_dir = _remote_compose_dir()
+    _run_remote_command(node, args, f"mkdir -p {remote_dir}")
+    remote_paths = []
+    for compose_file in compose_files:
+        remote_path = f"{remote_dir}/{compose_file.name}"
+        _run_scp(node, args, compose_file, remote_path)
+        remote_paths.append(remote_path)
+    return remote_paths
+
+
+def _upload_support_files(node: dict[str, Any], args) -> None:
+    remote_dir = _remote_compose_dir()
+    cni_dir = cli_config.PROJECT_ROOT / "services" / "agent" / "config" / "cni"
+    if not cni_dir.exists():
+        logging.warning(f"CNI config directory not found: {cni_dir}")
+        return
+    remote_cni_parent = f"{remote_dir}/services/agent/config"
+    _run_remote_command(node, args, f"mkdir -p {remote_cni_parent}")
+    _run_scp(node, args, cni_dir, remote_cni_parent, recursive=True)
 
 
 def _fetch_payload_via_ssh(args) -> str | None:
@@ -676,7 +839,9 @@ def _resolve_node(payload: dict[str, Any], args) -> dict[str, Any]:
 def _upsert_node(nodes: list[dict[str, Any]], node: dict[str, Any]) -> bool:
     for idx, existing in enumerate(nodes):
         if existing.get("id") == node["id"] or existing.get("host") == node["host"]:
-            nodes[idx] = node
+            merged = {**existing, **node}
+            merged["facts"] = {**existing.get("facts", {}), **node.get("facts", {})}
+            nodes[idx] = merged
             return True
     nodes.append(node)
     return False
@@ -688,13 +853,16 @@ def _run_add(args) -> None:
     node = _resolve_node(payload, args)
 
     setup_key = bool(args.host) and not getattr(args, "skip_key_setup", False)
-    if setup_key and not node.get("identity_file"):
+    if setup_key:
         try:
-            key_path, pub_path = _ensure_local_keypair()
+            key_path, pub_path = _resolve_identity_keypair(args, node)
         except Exception as exc:
-            logging.warning(f"Failed to generate SSH key: {exc}")
-        else:
-            public_key = pub_path.read_text().strip()
+            logging.error(f"Failed to resolve SSH identity: {exc}")
+            sys.exit(1)
+
+        node["identity_file"] = str(key_path)
+        public_key = pub_path.read_text().strip()
+        if not _ssh_key_auth_ok(node, args, key_path):
             password = _normalize_secret(getattr(args, "password", None))
             if not password:
                 password = _prompt_secret(f"{node['user']}@{node['host']} password")
@@ -702,11 +870,15 @@ def _run_add(args) -> None:
             installed = _install_public_key(
                 node["host"], node["user"], int(node["port"]), password, public_key
             )
-            if installed:
-                node["identity_file"] = str(key_path)
-                logging.success(f"SSH key installed for {node['user']}@{node['host']}")
-            else:
-                logging.warning("Failed to install SSH key; password auth remains required.")
+            if not installed:
+                logging.error("Failed to install SSH key; cannot proceed.")
+                sys.exit(1)
+            if not _ssh_key_auth_ok(node, args, key_path):
+                logging.error("SSH key verification failed after installation.")
+                sys.exit(1)
+            logging.success(f"SSH key installed for {node['user']}@{node['host']}")
+        else:
+            logging.success(f"SSH key already authorized for {node['user']}@{node['host']}")
 
     data = _load_nodes()
     updated = _upsert_node(data["nodes"], node)
@@ -813,6 +985,10 @@ def _render_doctor(name: str, host: str, port: int, result: dict[str, Any]) -> N
         ("cmd_dmsetup", result.get("cmd_dmsetup")),
         ("cmd_docker", result.get("cmd_docker")),
         ("cmd_containerd", result.get("cmd_containerd")),
+        ("runtime_node_up", result.get("runtime_node_up")),
+        ("local_proxy_up", result.get("local_proxy_up")),
+        ("agent_up", result.get("agent_up")),
+        ("node_up", result.get("node_up")),
     ]
     for key, value in checks:
         status = "OK" if value else "MISSING"
@@ -825,9 +1001,12 @@ def _run_doctor(args) -> None:
         logging.error("No nodes found. Run `esb node add` first.")
         sys.exit(1)
 
+    require_up = bool(getattr(args, "require_up", False))
     failures = 0
     for node in nodes:
         result = _doctor_via_ssh(node, args)
+        if require_up:
+            result["ok"] = bool(result.get("ok") and result.get("node_up"))
         _render_doctor(node["name"], node["host"], node.get("port", 22), result)
         if not result.get("ok"):
             failures += 1
@@ -873,6 +1052,9 @@ def _build_inventory_hosts(
     sudo_password: str | None,
 ) -> list[tuple[str, dict[str, Any]]]:
     entries: list[tuple[str, dict[str, Any]]] = []
+    control_host = _resolve_control_host()
+    registry_port = os.environ.get("REGISTRY_PORT", "5010").strip() or "5010"
+    ca_cert_path = Path.home() / ".esb" / "certs" / "rootCA.crt"
     for node in nodes:
         host = node["host"]
         user = args.user or node.get("user") or "root"
@@ -887,6 +1069,11 @@ def _build_inventory_hosts(
             "ssh_strict_host_key_checking": "accept-new",
             "esb_user": user,
         }
+        if control_host:
+            data["esb_registry_host"] = control_host
+            data["esb_registry_port"] = registry_port
+        if ca_cert_path.exists():
+            data["esb_ca_cert_path"] = str(ca_cert_path)
 
         if getattr(args, "firecracker_version", None):
             data["esb_firecracker_version"] = args.firecracker_version
@@ -1141,6 +1328,71 @@ def _run_provision(args) -> None:
             _save_nodes(data)
 
 
+def _run_up(args) -> None:
+    current_mode = runtime_mode.get_mode()
+    if current_mode != cli_config.ESB_MODE_FIRECRACKER:
+        logging.error("`esb node up` is only supported when mode=firecracker.")
+        logging.info("Run `esb mode set firecracker` and retry.")
+        sys.exit(1)
+
+    nodes = _select_nodes(args)
+    if not nodes:
+        logging.error("No nodes found. Run `esb node add` first.")
+        sys.exit(1)
+
+    control_host = _resolve_control_host()
+    if not control_host:
+        logging.error(
+            "ESB_CONTROL_HOST is required. Set ESB_CONTROL_HOST or GATEWAY_INTERNAL_URL before `esb node up`."
+        )
+        sys.exit(1)
+    control_registry = _resolve_control_registry(control_host)
+    if not control_registry:
+        logging.error(
+            "CONTAINER_REGISTRY is required. Set CONTAINER_REGISTRY or REGISTRY_PORT before `esb node up`."
+        )
+        sys.exit(1)
+
+    try:
+        compose_files = cli_compose.resolve_compose_files(target="compute")
+    except (FileNotFoundError, ValueError) as exc:
+        logging.error(str(exc))
+        sys.exit(1)
+
+    for node in nodes:
+        logging.step(f"Uploading compose files to {node.get('host')}")
+        remote_paths = _upload_compose_files(node, args, compose_files)
+        _upload_support_files(node, args)
+        compose_args = " ".join([f"-f {path}" for path in remote_paths])
+        control_env = (
+            f"ESB_CONTROL_HOST={shlex.quote(control_host)} "
+            f"CONTAINER_REGISTRY={shlex.quote(control_registry)}"
+        )
+        logging.step(f"Stopping compute services on {node.get('host')}")
+        _run_remote_command(node, args, f"{control_env} docker compose {compose_args} down --remove-orphans")
+        logging.step(f"Cleaning stale compute containers on {node.get('host')}")
+        _run_remote_command(
+            node,
+            args,
+            "docker rm -f esb-runtime-node esb-agent esb-local-proxy >/dev/null 2>&1 || true",
+        )
+        logging.step(f"Starting runtime-node on {node.get('host')} for PID namespace")
+        _run_remote_command(
+            node,
+            args,
+            f"{control_env} docker compose {compose_args} up -d runtime-node",
+        )
+        logging.step(f"Pulling compute images on {node.get('host')}")
+        _run_remote_command(node, args, f"{control_env} docker compose {compose_args} pull")
+        logging.step(f"Starting compute services on {node.get('host')}")
+        _run_remote_command(
+            node,
+            args,
+            f"{control_env} docker compose {compose_args} up -d --force-recreate",
+        )
+        logging.success(f"Compute services started: {node.get('name')}")
+
+
 def run(args) -> None:
     if args.node_command == "add":
         _run_add(args)
@@ -1150,6 +1402,9 @@ def run(args) -> None:
         return
     if args.node_command == "provision":
         _run_provision(args)
+        return
+    if args.node_command == "up":
+        _run_up(args)
         return
 
     logging.error(f"Unsupported node command: {args.node_command}")

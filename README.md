@@ -1,3 +1,8 @@
+<!--
+Where: README.md
+What: Project overview, usage, and CLI reference.
+Why: Provide a single entry point for developers and operators.
+-->
 # Edge Serverless Box
 
 **オンプレミス・エッジ環境のための、自己完結型サーバーレス実行基盤**
@@ -22,9 +27,14 @@
 | `esb down`  | サービスを停止し、コンテナを削除します。                                           | `--volumes (-v)`                             |
 | `esb reset` | 環境を完全に初期化し、DB等のデータも全て削除して再構築します。                     | `--yes (-y)`, `--rmi`                        |
 | `esb logs`  | サービスログを表示します。                                                       | `--follow (-f)`, `--tail`, `--timestamps`    |
+| `esb mode`  | 実行モードを取得/設定します。                                                     | `get`, `set <containerd|firecracker>`       |
 | `esb node add` | Compute Node を登録します。                                                  | `--host`, `--password`, `--skip-key-setup`   |
 | `esb node doctor` | Compute Node の前提チェックを行います。                                   | `--name`, `--host`, `--strict`               |
+| `esb node up` | Compute Node 上で compose を起動します（Firecracker モードのみ）。             | `--name`, `--host`                           |
 | `esb node provision` | Compute Node に必要な依存をプロビジョニングします。                 | `--name`, `--host`, `--sudo-password`, `--sudo-nopasswd`, `--firecracker-*`, `--devmapper-*` |
+
+補足:
+- 実行モードは `~/.esb/mode.yaml` に保存されます。
 
 ### Compute Node 管理（Phase C）
 
@@ -46,10 +56,24 @@ esb node provision --sudo-nopasswd --sudo-password <SUDO_PASSWORD>
 
 # 3-2. NOPASSWD 設定済みの再実行
 esb node provision --sudo-nopasswd
+
+# 4. Compute サービス起動（Firecracker モード）
+esb node up --name node-1
 ```
 
 補足:
 - 鍵を使いたくない場合は `esb node add --host ... --skip-key-setup` を使います。
+- `esb node add` は登録済みの鍵がリモートに無い場合、再インストールのためにパスワード入力を求めます。
+- `esb node add` は既存のノード設定（例: `sudo_nopasswd`）を保持したまま更新します。
+- `esb node up` は compose ファイルをリモートの `~/.esb/compose` に転送して起動します。
+- `esb node up` は Agent の CNI 設定（`services/agent/config/cni`）も転送します。
+- `esb node up` は `docker compose` を使うため、Compute Node には **Compose plugin** が必要です（`esb node provision` で導入）。
+- `esb node up` は `docker compose down --remove-orphans` と `docker rm -f` を先に実行し、古いコンテナを除去します。
+- `esb node up` は `runtime-node` を先に起動し、その後 `docker compose pull` と `up -d --force-recreate` を行います。
+- `esb node provision` は ESB Root CA を配布し、`/etc/docker/certs.d/<registry>/ca.crt` を設定します。
+- `ESB_CONTROL_HOST` が未設定の場合は `GATEWAY_INTERNAL_URL` のホスト名を利用します。
+- `CONTAINER_REGISTRY` 未設定時は `ESB_CONTROL_HOST` と `REGISTRY_PORT` から `CONTAINER_REGISTRY` を組み立てます。
+- Firecracker モードでは `esb build` が `esb-runtime-node`/`esb-agent` をレジストリへ push します。
 - `esb node provision` は sudo が必要です。sudo が通らない場合はリモート側の sudoers を確認してください。
 - `--sudo-nopasswd` は SSH ユーザーに対して `/etc/sudoers.d/esb-<user>` を作成します。
 - Firecracker のバージョンやインストール先を変えたい場合は `--firecracker-version` などのオプションを使用します。
@@ -63,18 +87,30 @@ esb node provision --sudo-nopasswd
 ```mermaid
 flowchart TD
     User([Developer / Client]) -->|HTTPS| Gateway["API Gateway - FastAPI"]
-    
-    subgraph Core ["Core Services"]
-        subgraph RuntimeNode["runtime-node (containerd + CNI)"]
-            Gateway -->|gRPC| Agent["Go Agent"]
-            Gateway -->|Proxy Request| LambdaRIE["Lambda RIE Containers"]
-            Agent -->|containerd/CNI| LambdaRIE
-        end
-        
-        LambdaRIE -->|AWS SDK| ScyllaDB
-        LambdaRIE -->|AWS SDK| RustFS
-        LambdaRIE -->|HTTP/JSON Logs| VictoriaLogs["VictoriaLogs"]
+
+    subgraph Control ["Control Plane (docker-compose.yml)"]
+        Gateway
+        RustFS["RustFS (S3)"]
+        ScyllaDB["ScyllaDB (DynamoDB)"]
+        VictoriaLogs["VictoriaLogs"]
+        Registry["Registry"]
     end
+
+    subgraph Compute ["Compute Plane (docker-compose.node.yml)"]
+        RuntimeNode["runtime-node (containerd + CNI + DNAT)"]
+        Agent["Go Agent (gRPC)"]
+        LocalProxy["local-proxy (HAProxy)"]
+        LambdaRIE["Lambda RIE Containers"]
+    end
+
+    Gateway -->|gRPC| Agent
+    Agent -->|containerd API| RuntimeNode
+    RuntimeNode -->|CNI bridge| LambdaRIE
+    LambdaRIE -->|AWS SDK / Logs| LocalProxy
+    LocalProxy -->|TCP| RustFS
+    LocalProxy -->|TCP| ScyllaDB
+    LocalProxy -->|TCP| VictoriaLogs
+    Agent -->|Pull images| Registry
     
     subgraph Toolchain ["CLI Toolchain"]
         esb[esb CLI] -->|build| Generator[SAM Generator]
@@ -91,13 +127,16 @@ flowchart TD
 ### システムコンポーネント
 - **`Gateway`**: API Gateway 互換プロキシ。`routing.yml` に基づき認証・ルーティングを行い、Go Agent を介して Lambda コンテナをオンデマンドで呼び出します。
 - **`Go Agent`**: コンテナのライフサイクル管理を担当。`containerd` を直接操作する高性能エージェントで、gRPC 通信により Gateway と高速かつ堅牢に連携します。
-- **`runtime-node`**: `containerd + CNI` と DNAT ルールを持つ実行基盤コンテナ。Gateway/Agent はこの NetNS を共有します。
+- **`runtime-node`**: `containerd + CNI` と DNAT ルールを持つ実行基盤コンテナ。Agent と local-proxy が NetNS を共有します。
+- **`local-proxy`**: `10.88.0.1:*` の DNAT 先として TCP 転送を担い、Docker DNS で `s3-storage` / `database` / `victorialogs` を解決します。
 - **`esb CLI`**: SAM テンプレート (`template.yaml`) を **Single Source of Truth** とし、開発を自動化する統合コマンドラインツールです。
 
 ### ファイル構成
 ```text
 .
-├── docker-compose.yml       # 開発用サービス構成
+├── docker-compose.yml       # Control/Core compose
+├── docker-compose.node.yml  # Compute compose (runtime-node/agent)
+├── docker-compose.containerd.yml # Standalone adapter (Core + Compute)
 ├── services/
 │   ├── gateway/             # API Gateway (FastAPI)
 │   ├── agent/               # Container Orchestrator (Go Agent)
@@ -114,6 +153,43 @@ flowchart TD
 │   │   └── functions/       # Lambda関数コード
 
 ```
+
+### Compose ファイル構成と起動パターン
+
+| ファイル | 役割 | 主な用途 |
+| --- | --- | --- |
+| `docker-compose.yml` | Control/Core（Gateway + 依存サービス） | Control Plane（単一ノード/分離構成の共通） |
+| `docker-compose.node.yml` | Compute（runtime-node/agent/local-proxy） | Compute Node（Firecracker/remote） |
+| `docker-compose.containerd.yml` | Adapter（単一ノード結合） | Core + Compute を同一ホストで統合 |
+
+#### 起動パターン（docker compose）
+
+単一ノード（containerd）:
+```bash
+docker compose -f docker-compose.yml \
+  -f docker-compose.node.yml \
+  -f docker-compose.containerd.yml up -d
+```
+
+Control/Compute 分離（Firecracker）:
+```bash
+# Control
+docker compose -f docker-compose.yml up -d
+
+# Compute
+docker compose -f docker-compose.node.yml up -d
+```
+
+#### CLI と compose の対応
+
+- `esb up` は `esb mode` の値で compose の組み合わせを切り替えます。
+  - `containerd`: `docker-compose.yml` + `docker-compose.node.yml` + `docker-compose.containerd.yml`
+  - `firecracker`: `docker-compose.yml`
+- Compute Node は `esb node up` が `docker-compose.node.yml` を転送して起動します。
+
+注意:
+- `docker compose -f` は指定順に合成され、後のファイルが前の内容を上書きします。
+- パスは最初の `-f` のディレクトリを基準に解決されます（必要なら `--project-directory` を使います）。
 
 ## クイックスタート
 
@@ -351,6 +427,13 @@ MyTable:
 
 #### E2E (End-to-End) Tests
 E2Eテストは、`esb up` で構築された環境（Go Agent が containerd を介して Lambda を動的に管理）に対して実行されます。
+
+Firecracker モードでは、事前に Compute Node を起動しておく必要があります。
+
+```bash
+esb node up
+esb node doctor --require-up
+```
 
 ```bash
 # 環境を起動した状態で実行

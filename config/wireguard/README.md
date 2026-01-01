@@ -46,7 +46,8 @@ Output files:
 
 Note:
 - `--wg-runtime-ip` は **Compute VM の docker bridge 内**にいる `runtime-node` 固定IPです。
-  `docker-compose.fc.yml` の `runtime_net` を `172.20.0.0/16` / `172.20.0.10` で運用する想定です。
+  `docker-compose.node.yml` の `runtime_net` を `172.20.0.0/16` / `172.20.0.10` で運用する想定です。
+  `wg0.conf` の `PostUp/PostDown` で `ip route` を best-effort にしておくと、runtime-node 起動前でも WG の起動が継続できます。
 - WG 経由で Lambda から Gateway へ戻す場合は以下を設定します:
   - `GATEWAY_INTERNAL_URL=https://10.99.0.1:443`
   - `WG_CONTROL_NET=10.99.0.0/24`（runtime-node 内にルート追加）

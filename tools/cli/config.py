@@ -1,5 +1,7 @@
+# Where: tools/cli/config.py
+# What: CLI configuration constants and path helpers.
+# Why: Centralize CLI defaults and filesystem locations.
 from pathlib import Path
-
 
 import os
 
@@ -21,6 +23,19 @@ TOOLS_DIR = PROJECT_ROOT / "tools"
 GENERATOR_DIR = TOOLS_DIR / "generator"
 PROVISIONER_DIR = TOOLS_DIR / "provisioner"
 DEFAULT_CERT_DIR = Path.home() / ".esb" / "certs"
+ESB_HOME = Path.home() / ".esb"
+MODE_CONFIG_PATH = ESB_HOME / "mode.yaml"
+MODE_CONFIG_VERSION = 1
+ESB_MODE_CONTAINERD = "containerd"
+ESB_MODE_FIRECRACKER = "firecracker"
+VALID_ESB_MODES = (ESB_MODE_CONTAINERD, ESB_MODE_FIRECRACKER)
+DEFAULT_ESB_MODE = ESB_MODE_CONTAINERD
+DEFAULT_AGENT_GRPC_PORT = 50051
+COMPOSE_BASE_FILE = PROJECT_ROOT / "docker-compose.yml"
+COMPOSE_CONTROL_FILE = PROJECT_ROOT / "docker-compose.yml"
+COMPOSE_COMPUTE_FILE = PROJECT_ROOT / "docker-compose.node.yml"
+COMPOSE_ADAPTER_FILE = PROJECT_ROOT / "docker-compose.containerd.yml"
+REMOTE_COMPOSE_DIR = ".esb/compose"
 
 
 def _resolve_template_yaml() -> Path:

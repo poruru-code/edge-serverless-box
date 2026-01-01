@@ -1,3 +1,6 @@
+// Where: services/agent/cmd/agent/main.go
+// What: Bootstrap the ESB Agent runtime and CNI setup.
+// Why: Keep startup wiring and env-driven networking behavior centralized.
 package main
 
 import (
@@ -7,6 +10,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/containerd/containerd"
@@ -65,6 +70,18 @@ func main() {
 		cniConfFile := os.Getenv("CNI_CONF_FILE")
 		if cniConfFile == "" {
 			cniConfFile = fmt.Sprintf("%s/10-esb.conflist", cniConfDir)
+		}
+
+		cniSubnet := strings.TrimSpace(os.Getenv("CNI_SUBNET"))
+		if cniSubnet != "" {
+			overriddenConfFile, err := prepareCNIConfig(cniConfFile, cniSubnet)
+			if err != nil {
+				log.Printf("WARN: failed to apply CNI_SUBNET=%s: %v", cniSubnet, err)
+			} else {
+				cniConfFile = overriddenConfFile
+				cniConfDir = filepath.Dir(overriddenConfFile)
+				log.Printf("CNI subnet override applied: %s", cniSubnet)
+			}
 		}
 
 		cniBinDir := os.Getenv("CNI_BIN_DIR")

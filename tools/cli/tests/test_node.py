@@ -1,3 +1,6 @@
+# Where: tools/cli/tests/test_node.py
+# What: Tests for node CLI behavior.
+# Why: Ensure node workflows remain stable.
 import json
 from argparse import Namespace
 from pathlib import Path
@@ -6,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tools.cli.commands import node as node_cmd
+from tools.cli import config as cli_config
 
 
 def _args(**overrides):
@@ -20,6 +24,7 @@ def _args(**overrides):
         skip_key_setup=False,
         ssh_option=[],
         strict=False,
+        require_up=False,
         sudo_password=None,
         sudo_nopasswd=False,
         firecracker_version=None,
@@ -95,6 +100,26 @@ def test_upsert_node_adds_new():
     assert nodes[0]["id"] == "node-2"
 
 
+def test_upsert_node_preserves_existing_fields():
+    nodes = [
+        {
+            "id": "node-1",
+            "host": "10.0.0.5",
+            "sudo_nopasswd": True,
+            "facts": {"arch": "x86_64"},
+        }
+    ]
+    updated = node_cmd._upsert_node(
+        nodes,
+        {"id": "node-1", "host": "10.0.0.5", "facts": {"hostname": "node-1"}},
+    )
+
+    assert updated is True
+    assert nodes[0]["sudo_nopasswd"] is True
+    assert nodes[0]["facts"]["arch"] == "x86_64"
+    assert nodes[0]["facts"]["hostname"] == "node-1"
+
+
 def test_run_add_installs_key_and_saves_node(tmp_path):
     key_path = tmp_path / "id_ed25519"
     pub_path = tmp_path / "id_ed25519.pub"
@@ -117,16 +142,57 @@ def test_run_add_installs_key_and_saves_node(tmp_path):
     with patch.object(node_cmd, "_read_payload", return_value=raw_payload), patch.object(
         node_cmd, "_ensure_local_keypair", return_value=(key_path, pub_path)
     ), patch.object(node_cmd, "_install_public_key", return_value=True) as mock_install, patch.object(
-        node_cmd, "_load_nodes", return_value={"version": 1, "nodes": []}
-    ), patch.object(node_cmd, "_save_nodes", side_effect=_save) as mock_save, patch.object(
-        node_cmd, "_update_known_hosts"
-    ) as mock_known:
+        node_cmd, "_ssh_key_auth_ok", side_effect=[False, True]
+    ), patch.object(node_cmd, "_load_nodes", return_value={"version": 1, "nodes": []}), patch.object(
+        node_cmd, "_save_nodes", side_effect=_save
+    ) as mock_save, patch.object(node_cmd, "_update_known_hosts") as mock_known:
         node_cmd._run_add(args)
 
     assert mock_install.called is True
     assert mock_save.called is True
     assert saved["nodes"][0]["identity_file"] == str(key_path)
     mock_known.assert_called_once_with("10.0.0.5 ssh-ed25519 AAAA")
+
+
+def test_run_add_reinstalls_key_when_auth_fails(tmp_path):
+    key_path = tmp_path / "id_ed25519"
+    pub_path = tmp_path / "id_ed25519.pub"
+    key_path.write_text("private")
+    pub_path.write_text("ssh-ed25519 AAAA testkey")
+
+    payload = {
+        "id": "node-1",
+        "hostname": "node-1",
+        "ssh_host_key": "ssh-ed25519 AAAA remotehost",
+    }
+    args = _args(
+        host="10.0.0.5",
+        user="esb",
+        port=22,
+        name="node-1",
+        password="pw",
+        identity_file=str(key_path),
+    )
+    raw_payload = json.dumps(payload)
+
+    saved: dict[str, object] = {}
+
+    def _save(data):
+        saved.update(data)
+
+    with patch.object(node_cmd, "_read_payload", return_value=raw_payload), patch.object(
+        node_cmd, "_install_public_key", return_value=True
+    ) as mock_install, patch.object(
+        node_cmd, "_ssh_key_auth_ok", side_effect=[False, True]
+    ), patch.object(
+        node_cmd, "_load_nodes", return_value={"version": 1, "nodes": []}
+    ), patch.object(node_cmd, "_save_nodes", side_effect=_save), patch.object(
+        node_cmd, "_update_known_hosts"
+    ):
+        node_cmd._run_add(args)
+
+    assert mock_install.called is True
+    assert saved["nodes"][0]["identity_file"] == str(key_path)
 
 
 def test_doctor_via_ssh_ok():
@@ -216,6 +282,30 @@ def test_run_doctor_strict_exits_on_failure():
         with pytest.raises(SystemExit) as exc:
             node_cmd._run_doctor(args)
     assert exc.value.code == 1
+
+
+def test_run_doctor_require_up_exits_when_down():
+    args = _args(strict=True, require_up=True)
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "port": 22}]
+    payload = {"ok": True, "node_up": False}
+
+    with patch.object(node_cmd, "_select_nodes", return_value=nodes), patch.object(
+        node_cmd, "_doctor_via_ssh", return_value=payload
+    ), patch.object(node_cmd, "_render_doctor"):
+        with pytest.raises(SystemExit) as exc:
+            node_cmd._run_doctor(args)
+    assert exc.value.code == 1
+
+
+def test_run_doctor_require_up_passes_when_up():
+    args = _args(strict=True, require_up=True)
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "port": 22}]
+    payload = {"ok": True, "node_up": True}
+
+    with patch.object(node_cmd, "_select_nodes", return_value=nodes), patch.object(
+        node_cmd, "_doctor_via_ssh", return_value=payload
+    ), patch.object(node_cmd, "_render_doctor"):
+        node_cmd._run_doctor(args)
 
 
 def test_run_provision_sudo_nopasswd_no_prompt(tmp_path):
@@ -414,3 +504,187 @@ def test_run_provision_passes_firecracker_assets_and_devmapper(tmp_path):
     assert data["esb_devmapper_meta_size"] == "1G"
     assert data["esb_devmapper_base_image_size"] == "5GB"
     assert data["esb_devmapper_udev"] is False
+
+
+def test_run_up_requires_firecracker_mode():
+    args = _args()
+    with patch("tools.cli.commands.node.runtime_mode.get_mode", return_value=cli_config.ESB_MODE_CONTAINERD):
+        with pytest.raises(SystemExit) as exc:
+            node_cmd._run_up(args)
+    assert exc.value.code == 1
+
+
+def test_run_up_starts_remote_compose(tmp_path, monkeypatch):
+    args = _args()
+    monkeypatch.setenv("ESB_CONTROL_HOST", "10.99.0.1")
+    monkeypatch.setenv("CONTAINER_REGISTRY", "10.99.0.1:5010")
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "user": "esb", "port": 22}]
+    compose_path = tmp_path / "docker-compose.node.yml"
+    remote_path = "/home/esb/.esb/compose/docker-compose.node.yml"
+
+    with patch("tools.cli.commands.node.runtime_mode.get_mode", return_value=cli_config.ESB_MODE_FIRECRACKER), patch(
+        "tools.cli.commands.node._select_nodes", return_value=nodes
+    ), patch(
+        "tools.cli.commands.node.cli_compose.resolve_compose_files", return_value=[compose_path]
+    ), patch(
+        "tools.cli.commands.node._upload_compose_files", return_value=[remote_path]
+    ), patch(
+        "tools.cli.commands.node._upload_support_files"
+    ), patch(
+        "tools.cli.commands.node._run_remote_command"
+    ) as mock_run:
+        node_cmd._run_up(args)
+
+    assert mock_run.called is True
+    command = mock_run.call_args[0][2]
+    assert "docker compose" in command
+    assert "ESB_CONTROL_HOST=" in command
+    assert "CONTAINER_REGISTRY=" in command
+    assert f"-f {remote_path}" in command
+
+
+def test_run_up_pulls_before_start(tmp_path, monkeypatch):
+    args = _args()
+    monkeypatch.setenv("ESB_CONTROL_HOST", "10.99.0.1")
+    monkeypatch.setenv("CONTAINER_REGISTRY", "10.99.0.1:5010")
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "user": "esb", "port": 22}]
+    compose_path = tmp_path / "docker-compose.node.yml"
+    remote_path = "/home/esb/.esb/compose/docker-compose.node.yml"
+
+    with patch("tools.cli.commands.node.runtime_mode.get_mode", return_value=cli_config.ESB_MODE_FIRECRACKER), patch(
+        "tools.cli.commands.node._select_nodes", return_value=nodes
+    ), patch(
+        "tools.cli.commands.node.cli_compose.resolve_compose_files", return_value=[compose_path]
+    ), patch(
+        "tools.cli.commands.node._upload_compose_files", return_value=[remote_path]
+    ), patch(
+        "tools.cli.commands.node._upload_support_files"
+    ), patch(
+        "tools.cli.commands.node._run_remote_command"
+    ) as mock_run:
+        node_cmd._run_up(args)
+
+    assert mock_run.call_count == 5
+    down_cmd = mock_run.call_args_list[0][0][2]
+    cleanup_cmd = mock_run.call_args_list[1][0][2]
+    runtime_cmd = mock_run.call_args_list[2][0][2]
+    pull_cmd = mock_run.call_args_list[3][0][2]
+    up_cmd = mock_run.call_args_list[4][0][2]
+    assert "docker compose" in down_cmd
+    assert " down" in down_cmd
+    assert "docker rm -f esb-runtime-node esb-agent esb-local-proxy" in cleanup_cmd
+    assert " up -d runtime-node" in runtime_cmd
+    assert "docker compose" in pull_cmd
+    assert " pull" in pull_cmd
+    assert f"-f {remote_path}" in pull_cmd
+    assert "docker compose" in up_cmd
+    assert " up -d --force-recreate" in up_cmd
+    assert f"-f {remote_path}" in up_cmd
+
+
+def test_run_up_uploads_support_files(tmp_path, monkeypatch):
+    args = _args()
+    monkeypatch.setenv("ESB_CONTROL_HOST", "10.99.0.1")
+    monkeypatch.setenv("CONTAINER_REGISTRY", "10.99.0.1:5010")
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "user": "esb", "port": 22}]
+    compose_path = tmp_path / "docker-compose.node.yml"
+    remote_path = "/home/esb/.esb/compose/docker-compose.node.yml"
+
+    with patch("tools.cli.commands.node.runtime_mode.get_mode", return_value=cli_config.ESB_MODE_FIRECRACKER), patch(
+        "tools.cli.commands.node._select_nodes", return_value=nodes
+    ), patch(
+        "tools.cli.commands.node.cli_compose.resolve_compose_files", return_value=[compose_path]
+    ), patch(
+        "tools.cli.commands.node._upload_compose_files", return_value=[remote_path]
+    ), patch(
+        "tools.cli.commands.node._upload_support_files"
+    ) as mock_support, patch(
+        "tools.cli.commands.node._run_remote_command"
+    ):
+        node_cmd._run_up(args)
+
+    assert mock_support.called is True
+
+
+def test_run_up_uses_docker_compose_plugin(tmp_path, monkeypatch):
+    args = _args()
+    monkeypatch.setenv("ESB_CONTROL_HOST", "10.99.0.1")
+    monkeypatch.setenv("CONTAINER_REGISTRY", "10.99.0.1:5010")
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "user": "esb", "port": 22}]
+    compose_path = tmp_path / "docker-compose.node.yml"
+    remote_path = "/home/esb/.esb/compose/docker-compose.node.yml"
+
+    with patch("tools.cli.commands.node.runtime_mode.get_mode", return_value=cli_config.ESB_MODE_FIRECRACKER), patch(
+        "tools.cli.commands.node._select_nodes", return_value=nodes
+    ), patch(
+        "tools.cli.commands.node.cli_compose.resolve_compose_files", return_value=[compose_path]
+    ), patch(
+        "tools.cli.commands.node._upload_compose_files", return_value=[remote_path]
+    ), patch(
+        "tools.cli.commands.node._upload_support_files"
+    ), patch(
+        "tools.cli.commands.node._run_remote_command"
+    ) as mock_run:
+        node_cmd._run_up(args)
+
+    commands = [call_args[0][2] for call_args in mock_run.call_args_list]
+    compose_commands = [cmd for cmd in commands if "compose" in cmd]
+    assert compose_commands
+    assert all("docker compose" in cmd for cmd in compose_commands)
+
+
+def test_run_remote_command_quotes_command():
+    args = _args()
+    node = {"host": "10.0.0.5", "user": "esb", "port": 22}
+    command = "mkdir -p ~/.esb/compose"
+
+    with patch.object(node_cmd, "_ssh_options", return_value=[]), patch(
+        "tools.cli.commands.node.subprocess.run"
+    ) as mock_run:
+        node_cmd._run_remote_command(node, args, command)
+
+    expected = ["ssh", "-p", "22", "esb@10.0.0.5", "sh", "-c", node_cmd.shlex.quote(command)]
+    assert mock_run.call_args[0][0] == expected
+
+
+def test_run_up_requires_control_host(monkeypatch):
+    args = _args()
+    monkeypatch.delenv("ESB_CONTROL_HOST", raising=False)
+    monkeypatch.delenv("GATEWAY_INTERNAL_URL", raising=False)
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "user": "esb", "port": 22}]
+
+    with patch("tools.cli.commands.node.runtime_mode.get_mode", return_value=cli_config.ESB_MODE_FIRECRACKER), patch(
+        "tools.cli.commands.node._select_nodes", return_value=nodes
+    ):
+        with pytest.raises(SystemExit) as exc:
+            node_cmd._run_up(args)
+    assert exc.value.code == 1
+
+
+def test_run_up_uses_gateway_internal_url(tmp_path, monkeypatch):
+    args = _args()
+    monkeypatch.delenv("ESB_CONTROL_HOST", raising=False)
+    monkeypatch.delenv("CONTAINER_REGISTRY", raising=False)
+    monkeypatch.setenv("GATEWAY_INTERNAL_URL", "https://10.99.0.1:443")
+    nodes = [{"name": "node-1", "host": "10.0.0.5", "user": "esb", "port": 22}]
+    compose_path = tmp_path / "docker-compose.node.yml"
+    remote_path = "/home/esb/.esb/compose/docker-compose.node.yml"
+
+    with patch("tools.cli.commands.node.runtime_mode.get_mode", return_value=cli_config.ESB_MODE_FIRECRACKER), patch(
+        "tools.cli.commands.node._select_nodes", return_value=nodes
+    ), patch(
+        "tools.cli.commands.node.cli_compose.resolve_compose_files", return_value=[compose_path]
+    ), patch(
+        "tools.cli.commands.node._upload_compose_files", return_value=[remote_path]
+    ), patch(
+        "tools.cli.commands.node._upload_support_files"
+    ), patch(
+        "tools.cli.commands.node._run_remote_command"
+    ) as mock_run:
+        node_cmd._run_up(args)
+
+    command = mock_run.call_args[0][2]
+    assert "ESB_CONTROL_HOST=" in command
+    assert "10.99.0.1" in command
+    assert "CONTAINER_REGISTRY=" in command
+    assert "10.99.0.1:5010" in command

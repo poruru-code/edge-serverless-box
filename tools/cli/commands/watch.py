@@ -1,3 +1,6 @@
+# Where: tools/cli/commands/watch.py
+# What: Watch for file changes and reload services.
+# Why: Provide a lightweight hot-reload workflow for CLI users.
 import time
 import subprocess
 from pathlib import Path
@@ -7,6 +10,7 @@ import docker
 
 from tools.provisioner import main as provisioner
 from tools.cli.config import PROJECT_ROOT
+from tools.cli import compose as cli_compose
 from dotenv import load_dotenv
 
 
@@ -68,7 +72,9 @@ class SmartReloader(FileSystemEventHandler):
         logging.info("Restarting Gateway...")
         try:
             subprocess.run(
-                ["docker", "compose", "restart", "gateway"], check=True, capture_output=True
+                cli_compose.build_compose_command(["restart", "gateway"], target="control"),
+                check=True,
+                capture_output=True,
             )
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to restart gateway: {e}")

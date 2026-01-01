@@ -1,4 +1,6 @@
 from unittest.mock import MagicMock, patch
+import os
+import yaml
 import pytest
 from tools.cli.commands import up
 
@@ -54,3 +56,22 @@ class TestUpCommand:
         assert (
             "https://localhost/health" in args[0] or kwargs.get("url") == "https://localhost/health"
         )
+
+    @patch("tools.cli.commands.up.subprocess.check_call")
+    @patch("tools.cli.commands.up.provisioner.main")
+    @patch("tools.cli.commands.up.ensure_certs")
+    def test_run_sets_agent_address_for_firecracker(
+        self, mock_cert, mock_prov, mock_sub, mock_args, tmp_path, monkeypatch
+    ):
+        nodes = {"version": 1, "nodes": [{"wg_compute_addr": "10.99.0.2/32"}]}
+        nodes_path = tmp_path / "nodes.yaml"
+        nodes_path.write_text(yaml.safe_dump(nodes))
+
+        monkeypatch.setattr(up.cli_config, "ESB_HOME", tmp_path)
+        monkeypatch.setenv("AGENT_GRPC_ADDRESS", "localhost:50051")
+        monkeypatch.setenv("PORT", "50051")
+        monkeypatch.setattr(up.runtime_mode, "get_mode", lambda: up.cli_config.ESB_MODE_FIRECRACKER)
+
+        up.run(mock_args)
+
+        assert os.environ["AGENT_GRPC_ADDRESS"] == "10.99.0.2:50051"

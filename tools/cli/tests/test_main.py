@@ -1,6 +1,10 @@
+# Where: tools/cli/tests/test_main.py
+# What: CLI entrypoint tests for command dispatch.
+# Why: Validate argument parsing and routing behavior.
 import sys
 import pytest
 from unittest.mock import patch
+from tools.cli import config as cli_config
 from tools.cli.main import main
 
 
@@ -19,6 +23,7 @@ def test_cli_help(capsys):
     assert "down" in captured.out
     assert "init" in captured.out
     assert "node" in captured.out
+    assert "mode" in captured.out
 
 
 @patch("tools.cli.commands.build.run")
@@ -106,6 +111,30 @@ def test_cli_node_provision_dispatch(mock_node_run):
     with patch.object(sys, "argv", ["esb", "node", "provision"]):
         main()
     mock_node_run.assert_called_once()
+
+
+@patch("tools.cli.commands.node.run")
+def test_cli_node_up_dispatch(mock_node_run):
+    """Ensure the node up subcommand is dispatched correctly."""
+    with patch.object(sys, "argv", ["esb", "node", "up"]):
+        main()
+    mock_node_run.assert_called_once()
+
+
+@patch("tools.cli.commands.mode.run")
+def test_cli_mode_get_dispatch(mock_mode_run):
+    """Ensure the mode get subcommand is dispatched correctly."""
+    with patch.object(sys, "argv", ["esb", "mode", "get"]):
+        main()
+    mock_mode_run.assert_called_once()
+
+
+@patch("tools.cli.commands.mode.run")
+def test_cli_mode_set_dispatch(mock_mode_run):
+    """Ensure the mode set subcommand is dispatched correctly."""
+    with patch.object(sys, "argv", ["esb", "mode", "set", cli_config.ESB_MODE_CONTAINERD]):
+        main()
+    mock_mode_run.assert_called_once()
 
 
 

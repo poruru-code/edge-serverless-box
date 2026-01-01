@@ -1,3 +1,6 @@
+// Where: services/agent/internal/runtime/containerd/runtime.go
+// What: Containerd runtime implementation for the Go agent.
+// Why: Manage container lifecycle and CNI wiring for lambda workers.
 package containerd
 
 import (
@@ -23,6 +26,12 @@ import (
 	"github.com/poruru/edge-serverless-box/services/agent/internal/runtime"
 )
 
+const (
+	runtimeFirecracker   = "aws.firecracker"
+	snapshotterOverlay   = "overlayfs"
+	snapshotterDevmapper = "devmapper"
+)
+
 type Runtime struct {
 	client        ContainerdClient
 	cni           cni.CNI
@@ -38,6 +47,17 @@ func NewRuntime(client ContainerdClient, cniPlugin cni.CNI, namespace string) *R
 		cni:       cniPlugin,
 		namespace: namespace,
 	}
+}
+
+func resolveSnapshotter() string {
+	if value := strings.TrimSpace(os.Getenv("CONTAINERD_SNAPSHOTTER")); value != "" {
+		return value
+	}
+	runtimeName := strings.TrimSpace(os.Getenv("CONTAINERD_RUNTIME"))
+	if runtimeName == runtimeFirecracker {
+		return snapshotterDevmapper
+	}
+	return snapshotterOverlay
 }
 
 func memoryLimitBytes(env map[string]string) (uint64, bool) {
@@ -182,8 +202,9 @@ func (r *Runtime) Ensure(ctx context.Context, req runtime.EnsureRequest) (*runti
 	}
 
 	// 2. Create Container with CNI networking
+	snapshotter := resolveSnapshotter()
 	createOpts := []containerd.NewContainerOpts{
-		containerd.WithSnapshotter("overlayfs"),
+		containerd.WithSnapshotter(snapshotter),
 		containerd.WithNewSnapshot(containerID, imgObj),
 		containerd.WithNewSpec(
 			specOpts...,
@@ -511,10 +532,10 @@ func (r *Runtime) List(ctx context.Context) ([]runtime.ContainerState, error) {
 		}
 
 		states = append(states, runtime.ContainerState{
-			ID:           containerID,
-			FunctionName: functionName,
-			Status:       status,
-			LastUsedAt:   lastUsedAt,
+			ID:            containerID,
+			FunctionName:  functionName,
+			Status:        status,
+			LastUsedAt:    lastUsedAt,
 			ContainerName: containerID,
 			CreatedAt:     createdAt,
 		})

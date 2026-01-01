@@ -1,3 +1,6 @@
+# Where: tools/cli/commands/logs.py
+# What: Show service logs via docker compose.
+# Why: Provide log access with consistent CLI settings.
 """
 esb logs - Display service logs.
 
@@ -13,6 +16,7 @@ Examples:
 import subprocess
 import sys
 from tools.cli.config import PROJECT_ROOT
+from tools.cli import compose as cli_compose
 from dotenv import load_dotenv
 from tools.cli.core import logging
 
@@ -26,7 +30,7 @@ def run(args):
     if env_file.exists():
         load_dotenv(env_file, override=False)
 
-    cmd = ["docker", "compose", "logs"]
+    cmd = cli_compose.build_compose_command(["logs"], target="control")
 
     # --follow option (follow logs in real time).
     if getattr(args, "follow", False):

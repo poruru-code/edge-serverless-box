@@ -1,3 +1,6 @@
+// Where: services/agent/internal/runtime/containerd/common_test.go
+// What: Shared mocks for containerd runtime unit tests.
+// Why: Provide reusable fakes for containerd and CNI interfaces.
 package containerd
 
 import (
@@ -7,11 +10,12 @@ import (
 	"syscall"
 
 	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/cio"
+	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/go-cni"
+	"github.com/containerd/platforms"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/mock"
@@ -181,12 +185,26 @@ func (m *MockImage) Target() v1.Descriptor {
 	return v1.Descriptor{}
 }
 
-func (m *MockImage) Labels() (map[string]string, error) {
-	return nil, nil
+func (m *MockImage) Labels() map[string]string {
+	return nil
 }
 
 func (m *MockImage) Config(ctx context.Context) (v1.Descriptor, error) {
 	return v1.Descriptor{}, nil
+}
+
+func (m *MockImage) RootFS(ctx context.Context) ([]digest.Digest, error) {
+	return nil, nil
+}
+
+func (m *MockImage) IsUnpacked(ctx context.Context, snapshotterName string) (bool, error) {
+	args := m.Called(ctx, snapshotterName)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockImage) Unpack(ctx context.Context, snapshotterName string, _ ...containerd.UnpackOpt) error {
+	args := m.Called(ctx, snapshotterName)
+	return args.Error(0)
 }
 
 // MockContentStore stubs content.Store
@@ -238,8 +256,8 @@ func (m *MockImage) Metadata() images.Image {
 	return images.Image{}
 }
 
-func (m *MockImage) Platform() v1.Platform {
-	return v1.Platform{}
+func (m *MockImage) Platform() platforms.MatchComparer {
+	return nil
 }
 
 func (m *MockImage) Size(ctx context.Context) (int64, error) {
@@ -248,6 +266,10 @@ func (m *MockImage) Size(ctx context.Context) (int64, error) {
 
 func (m *MockImage) Usage(ctx context.Context, usages ...containerd.UsageOpt) (int64, error) {
 	return 0, nil
+}
+
+func (m *MockImage) Spec(ctx context.Context) (v1.Image, error) {
+	return v1.Image{}, nil
 }
 
 func (m *MockContainer) Delete(ctx context.Context, opts ...containerd.DeleteOpts) error {

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Where: tests/run_tests.py
+# What: E2E test runner for ESB CLI scenarios.
+# Why: Provide a single entry point for scenario setup, execution, and teardown.
 import argparse
 import os
 import sys
@@ -15,7 +18,21 @@ def run_esb(args: list[str], check: bool = True):
     # Use current source code instead of installed command.
     cmd = [sys.executable, "-m", "tools.cli.main"] + args
     print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=PROJECT_ROOT, check=check)
+    return subprocess.run(cmd, cwd=PROJECT_ROOT, check=check)
+
+
+def ensure_firecracker_node_up() -> None:
+    """Fail fast if compute services are not running in firecracker mode."""
+    from tools.cli import config as cli_config
+    from tools.cli import runtime_mode
+
+    if runtime_mode.get_mode() != cli_config.ESB_MODE_FIRECRACKER:
+        return
+
+    result = run_esb(["node", "doctor", "--strict", "--require-up"], check=False)
+    if result.returncode != 0:
+        print("\n[FAILED] Compute node is not up. Run `esb node up` and retry.")
+        sys.exit(result.returncode)
 
 
 def main():
@@ -158,6 +175,8 @@ def run_scenario(args, scenario):
 
     # Update current process env for helper calls
     os.environ.update(env)
+
+    ensure_firecracker_node_up()
 
     try:
         # 2. Reset / Build

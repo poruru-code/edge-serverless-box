@@ -1,3 +1,6 @@
+# Where: tools/pyinfra/esb_node_provision.py
+# What: pyinfra deploy script for compute node provisioning.
+# Why: Install dependencies and configure the Firecracker runtime environment.
 from pathlib import Path
 
 from pyinfra import host
@@ -5,10 +8,9 @@ from pyinfra.operations import apt, files, server
 
 DEFAULT_PACKAGES = [
     "ca-certificates",
-    "containerd",
     "curl",
     "dmsetup",
-    "docker.io",
+    "ethtool",
     "gcc",
     "git",
     "golang-go",
@@ -21,6 +23,23 @@ DEFAULT_PACKAGES = [
     "sudo",
     "util-linux",
     "wireguard-tools",
+]
+
+DEFAULT_DOCKER_PACKAGES = [
+    "docker-ce",
+    "docker-ce-cli",
+    "containerd.io",
+    "docker-buildx-plugin",
+    "docker-compose-plugin",
+]
+
+LEGACY_DOCKER_PACKAGES = [
+    "docker.io",
+    "docker-doc",
+    "docker-compose",
+    "podman-docker",
+    "containerd",
+    "runc",
 ]
 
 DEFAULT_GROUPS = ["kvm", "docker"]
@@ -116,6 +135,8 @@ index 979e04b..1b04ae9 100644
 
 
 packages = _get_list("esb_packages", DEFAULT_PACKAGES)
+docker_packages = _get_list("esb_docker_packages", DEFAULT_DOCKER_PACKAGES)
+legacy_docker_packages = _get_list("esb_legacy_docker_packages", LEGACY_DOCKER_PACKAGES)
 groups = _get_list("esb_groups", DEFAULT_GROUPS)
 user = host.data.get("esb_user") or host.data.get("ssh_user") or "root"
 sudo_nopasswd = bool(host.data.get("esb_sudo_nopasswd"))
@@ -143,18 +164,267 @@ devmapper_dir = host.data.get("esb_devmapper_dir") or "/var/lib/containerd/devma
 devmapper_data_size = host.data.get("esb_devmapper_data_size") or "10G"
 devmapper_meta_size = host.data.get("esb_devmapper_meta_size") or "2G"
 devmapper_base_image_size = host.data.get("esb_devmapper_base_image_size") or "10GB"
-devmapper_udev = _get_bool("esb_devmapper_udev", True)
+devmapper_udev = _get_bool("esb_devmapper_udev", False)
+
+devmapper_init_script = f"""#!/bin/sh
+# Where: /usr/local/bin/esb-mount-pool.sh
+# What: Ensure the Firecracker devmapper pool exists and matches expected devices.
+# Why: Prepare storage before containerd/docker start to avoid pool conflicts.
+set -eu
+pool="{devmapper_pool}"
+root_dir="{devmapper_dir}"
+data_size="{devmapper_data_size}"
+meta_size="{devmapper_meta_size}"
+udev_enabled="{1 if devmapper_udev else 0}"
+
+if ! command -v dmsetup >/dev/null 2>&1; then
+  echo "dmsetup not available"
+  exit 1
+fi
+if ! command -v losetup >/dev/null 2>&1; then
+  echo "losetup not available"
+  exit 1
+fi
+if ! command -v blockdev >/dev/null 2>&1; then
+  echo "blockdev not available"
+  exit 1
+fi
+
+lock_file="/run/esb-devmapper.lock"
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$lock_file"
+  flock -x 9
+else
+  echo "WARN: flock not available; proceeding without lock"
+fi
+
+mkdir -p "$root_dir"
+data_file="$root_dir/data-device"
+meta_file="$root_dir/meta-device"
+
+dm_env=""
+dm_args=""
+if [ "$udev_enabled" != "1" ]; then
+  dm_env="DM_UDEV_DISABLE=1 DM_UDEV_DISABLE_DISK_RULES_FLAG=1"
+  dm_args="--noudevsync --noudevrules"
+fi
+
+ensure_backing_file() {{
+  file="$1"
+  size="$2"
+  if [ ! -f "$file" ]; then
+    if command -v fallocate >/dev/null 2>&1; then
+      if ! fallocate -l "$size" "$file"; then
+        echo "WARN: fallocate failed for $file; using sparse file"
+        truncate -s "$size" "$file"
+      fi
+    else
+      truncate -s "$size" "$file"
+    fi
+    return
+  fi
+  if command -v fallocate >/dev/null 2>&1; then
+    current_size="$(stat -c '%s' "$file" 2>/dev/null || echo "")"
+    if [ -n "$current_size" ]; then
+      if ! fallocate -n -l "$current_size" "$file"; then
+        echo "WARN: fallocate failed for $file; keeping existing file"
+      fi
+    fi
+  fi
+}}
+
+device_major_minor() {{
+  dev="$1"
+  major_hex="$(stat -c '%t' "$dev")"
+  minor_hex="$(stat -c '%T' "$dev")"
+  major=$((0x${{major_hex}}))
+  minor=$((0x${{minor_hex}}))
+  printf "%d:%d" "$major" "$minor"
+}}
+
+ensure_backing_file "$data_file" "$data_size"
+ensure_backing_file "$meta_file" "$meta_size"
+
+existing_table="$(env $dm_env dmsetup table "$pool" 2>/dev/null | head -n1 || true)"
+if [ -n "$existing_table" ]; then
+  if [ ! -f "$data_file" ] || [ ! -f "$meta_file" ]; then
+    echo "ERROR: Devmapper pool $pool exists but backing files are missing."
+    exit 1
+  fi
+
+  data_dev="$(losetup --output NAME --noheadings --associated "$data_file" 2>/dev/null | head -n1 || true)"
+  meta_dev="$(losetup --output NAME --noheadings --associated "$meta_file" 2>/dev/null | head -n1 || true)"
+  if [ -z "$data_dev" ] || [ -z "$meta_dev" ]; then
+    echo "ERROR: Devmapper pool $pool exists but loop devices are not attached."
+    exit 1
+  fi
+
+  table_meta_mm="$(echo "$existing_table" | awk '{{print $4}}')"
+  table_data_mm="$(echo "$existing_table" | awk '{{print $5}}')"
+  expected_meta_mm="$(device_major_minor "$meta_dev")"
+  expected_data_mm="$(device_major_minor "$data_dev")"
+  if [ "$table_meta_mm" != "$expected_meta_mm" ] || [ "$table_data_mm" != "$expected_data_mm" ]; then
+    echo "ERROR: Devmapper pool $pool does not match expected devices."
+    echo "Expected meta=$expected_meta_mm data=$expected_data_mm"
+    echo "Actual meta=$table_meta_mm data=$table_data_mm"
+    exit 1
+  fi
+  echo "Devmapper pool $pool already exists; skipping create"
+  env $dm_env dmsetup mknodes "$pool" >/dev/null 2>&1 || true
+  exit 0
+fi
+
+data_dev="$(losetup --output NAME --noheadings --associated "$data_file" 2>/dev/null | head -n1 || true)"
+if [ -z "$data_dev" ]; then
+  data_dev="$(losetup --find --show "$data_file")"
+fi
+
+meta_dev="$(losetup --output NAME --noheadings --associated "$meta_file" 2>/dev/null | head -n1 || true)"
+if [ -z "$meta_dev" ]; then
+  meta_dev="$(losetup --find --show "$meta_file")"
+fi
+
+sector_size=512
+data_size_bytes="$(blockdev --getsize64 -q "$data_dev")"
+length_sectors=$((data_size_bytes / sector_size))
+data_block_size=128
+low_water_mark=32768
+table="0 ${{length_sectors}} thin-pool ${{meta_dev}} ${{data_dev}} ${{data_block_size}} ${{low_water_mark}} 1 skip_block_zeroing"
+
+env $dm_env dmsetup create $dm_args "$pool" --table "$table"
+env $dm_env dmsetup mknodes "$pool" >/dev/null 2>&1 || true
+"""
+
+devmapper_systemd_unit = """# Where: /etc/systemd/system/esb-storage.service
+# What: One-shot service to initialize the Firecracker devmapper pool.
+# Why: Ensure storage is ready before containerd/docker start.
+[Unit]
+Description=Initialize Firecracker devmapper pool
+After=local-fs.target
+Before=containerd.service docker.service firecracker-containerd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/esb-mount-pool.sh
+RemainAfterExit=yes
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target
+"""
 
 wireguard_conf_src = host.data.get("esb_wireguard_conf") or ""
 wireguard_iface = host.data.get("esb_wireguard_interface") or "wg0"
 wireguard_enable = _get_bool("esb_wireguard_enable", True)
+ca_cert_src = host.data.get("esb_ca_cert_path") or ""
+registry_host = host.data.get("esb_registry_host") or ""
+registry_port = str(host.data.get("esb_registry_port") or "5010").strip()
+user_home = f"/home/{user}" if user and user != "root" else "/root"
+esb_cert_dir = f"{user_home}/.esb/certs"
+docker_daemon_config = "{\n  \"storage-driver\": \"overlay2\"\n}\n"
 
+
+apt.packages(
+    name="Remove legacy Docker packages",
+    packages=legacy_docker_packages,
+    present=False,
+)
 
 apt.packages(
     name="Install base packages for ESB node",
     packages=packages,
     update=True,
 )
+
+server.shell(
+    name="Add Docker apt repository",
+    commands=[
+        "\n".join(
+            [
+                "set -eu",
+                "install -m 0755 -d /etc/apt/keyrings",
+                "if [ ! -f /etc/apt/keyrings/docker.asc ]; then",
+                "  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc",
+                "fi",
+                "chmod a+r /etc/apt/keyrings/docker.asc",
+                "arch=\"$(dpkg --print-architecture)\"",
+                "codename=\"$(. /etc/os-release && echo \"$VERSION_CODENAME\")\"",
+                "echo \"deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.asc] "
+                "https://download.docker.com/linux/ubuntu ${codename} stable\" "
+                "> /etc/apt/sources.list.d/docker.list",
+            ]
+        )
+    ],
+)
+
+apt.packages(
+    name="Install Docker Engine and Compose plugin",
+    packages=docker_packages,
+    update=True,
+)
+
+server.shell(
+    name="Configure Docker to use overlay2 driver",
+    commands=[
+        "\n".join(
+            [
+                "set -eu",
+                "install -d -m 0755 /etc/docker",
+                "cat > /etc/docker/daemon.json <<'EOF'",
+                docker_daemon_config.rstrip("\n"),
+                "EOF",
+                "chmod 0644 /etc/docker/daemon.json",
+            ]
+        )
+    ],
+)
+
+if ca_cert_src and Path(ca_cert_src).exists():
+    files.directory(
+        name="Ensure ESB cert directory exists",
+        path=esb_cert_dir,
+        present=True,
+        recursive=True,
+        mode="0755",
+    )
+    files.put(
+        name="Upload ESB Root CA to user cert directory",
+        src=ca_cert_src,
+        dest=f"{esb_cert_dir}/rootCA.crt",
+        mode="0644",
+    )
+    files.directory(
+        name="Ensure system CA directory exists",
+        path="/usr/local/share/ca-certificates",
+        present=True,
+        recursive=True,
+        mode="0755",
+    )
+    files.put(
+        name="Install ESB Root CA for system trust",
+        src=ca_cert_src,
+        dest="/usr/local/share/ca-certificates/esb-rootCA.crt",
+        mode="0644",
+    )
+    server.shell(
+        name="Update system CA store",
+        commands=["update-ca-certificates || true"],
+    )
+    if registry_host and registry_port:
+        registry_dir = f"/etc/docker/certs.d/{registry_host}:{registry_port}"
+        files.directory(
+            name="Ensure Docker registry cert directory exists",
+            path=registry_dir,
+            present=True,
+            recursive=True,
+            mode="0755",
+        )
+        files.put(
+            name="Install ESB Root CA for Docker registry trust",
+            src=ca_cert_src,
+            dest=f"{registry_dir}/ca.crt",
+            mode="0644",
+        )
 
 for group in groups:
     server.group(
@@ -567,64 +837,38 @@ echo "$computed_sha" > "$rootfs_sha_marker"
 )
 
 server.shell(
-    name="Initialize devmapper pool",
+    name="Install devmapper mount script",
     commands=[
-        f"""
-set -eu
-pool="{devmapper_pool}"
-root_dir="{devmapper_dir}"
-data_size="{devmapper_data_size}"
-meta_size="{devmapper_meta_size}"
-udev_enabled="{1 if devmapper_udev else 0}"
-
-if ! command -v dmsetup >/dev/null 2>&1; then
-  echo "dmsetup not available"
-  exit 1
-fi
-
-mkdir -p "$root_dir"
-data_file="$root_dir/data-device"
-meta_file="$root_dir/meta-device"
-
-if [ ! -f "$data_file" ]; then
-  truncate -s "$data_size" "$data_file"
-fi
-if [ ! -f "$meta_file" ]; then
-  truncate -s "$meta_size" "$meta_file"
-fi
-
-data_dev="$(losetup --output NAME --noheadings --associated "$data_file" 2>/dev/null || true)"
-if [ -z "$data_dev" ]; then
-  data_dev="$(losetup --find --show "$data_file")"
-fi
-
-meta_dev="$(losetup --output NAME --noheadings --associated "$meta_file" 2>/dev/null || true)"
-if [ -z "$meta_dev" ]; then
-  meta_dev="$(losetup --find --show "$meta_file")"
-fi
-
-sector_size=512
-data_size_bytes="$(blockdev --getsize64 -q "$data_dev")"
-length_sectors=$((data_size_bytes / sector_size))
-data_block_size=128
-low_water_mark=32768
-table="0 ${{length_sectors}} thin-pool ${{meta_dev}} ${{data_dev}} ${{data_block_size}} ${{low_water_mark}} 1 skip_block_zeroing"
-
-dm_env=""
-dm_args=""
-if [ "$udev_enabled" != "1" ]; then
-  dm_env="DM_UDEV_DISABLE=1 DM_UDEV_DISABLE_DISK_RULES_FLAG=1"
-  dm_args="--noudevsync --noudevrules"
-fi
-
-if env $dm_env dmsetup status "$pool" >/dev/null 2>&1; then
-  env $dm_env dmsetup reload $dm_args "$pool" --table "$table"
-else
-  env $dm_env dmsetup create $dm_args "$pool" --table "$table"
-fi
-env $dm_env dmsetup mknodes "$pool" >/dev/null 2>&1 || true
-"""
+        _write_file_command("/usr/local/bin/esb-mount-pool.sh", devmapper_init_script, mode="0755"),
     ],
+)
+
+server.shell(
+    name="Install devmapper systemd service",
+    commands=[
+        _write_file_command("/etc/systemd/system/esb-storage.service", devmapper_systemd_unit, mode="0644"),
+    ],
+)
+
+server.shell(
+    name="Reload systemd units for devmapper service",
+    commands=[
+        "\n".join(
+            [
+                "set -eu",
+                "if command -v systemctl >/dev/null 2>&1; then",
+                "  systemctl daemon-reload",
+                "fi",
+            ]
+        )
+    ],
+)
+
+server.service(
+    name="Ensure devmapper storage service is enabled",
+    service="esb-storage",
+    enabled=True,
+    running=True,
 )
 
 for module in ["kvm", "vhost_vsock", "tun"]:
@@ -632,6 +876,22 @@ for module in ["kvm", "vhost_vsock", "tun"]:
         name=f"Load kernel module {module}",
         module=module,
     )
+
+server.shell(
+    name="Disable TX checksumming for Hyper-V network stability",
+    commands=[
+        "\n".join(
+            [
+                "set -eu",
+                "if command -v ethtool >/dev/null 2>&1; then",
+                "  if ip link show eth0 >/dev/null 2>&1; then",
+                "    ethtool -K eth0 tx-checksumming off || true",
+                "  fi",
+                "fi",
+            ]
+        )
+    ],
+)
 
 if wireguard_conf_src and Path(wireguard_conf_src).exists():
     files.directory(

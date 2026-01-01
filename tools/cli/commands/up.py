@@ -1,10 +1,16 @@
+# Where: tools/cli/commands/up.py
+# What: Start ESB services via docker compose.
+# Why: Boot the local stack with consistent CLI behavior.
 import os
 import sys
 import yaml
 import subprocess
+from pathlib import Path
 from . import build
 from tools.provisioner import main as provisioner
 from tools.cli import config as cli_config
+from tools.cli import compose as cli_compose
+from tools.cli import runtime_mode
 from tools.cli.config import PROJECT_ROOT
 from dotenv import load_dotenv
 
@@ -37,9 +43,51 @@ def wait_for_gateway(timeout=60):
     return False
 
 
+def _should_override_agent_address(current: str | None) -> bool:
+    if not current:
+        return True
+    normalized = current.strip().lower()
+    return normalized in {
+        "localhost:50051",
+        "127.0.0.1:50051",
+        "::1:50051",
+        "esb-agent:50051",
+        "runtime-node:50051",
+    }
+
+
+def _resolve_firecracker_agent_address() -> str | None:
+    nodes_path = cli_config.ESB_HOME / "nodes.yaml"
+    if not nodes_path.exists():
+        return None
+    try:
+        data = yaml.safe_load(nodes_path.read_text())
+    except Exception as exc:
+        logging.warning(f"Failed to read nodes config for Agent address: {exc}")
+        return None
+    if not isinstance(data, dict):
+        return None
+    nodes = data.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        wg_addr = node.get("wg_compute_addr") or ""
+        if not wg_addr:
+            continue
+        host = wg_addr.split("/")[0]
+        port = os.environ.get("AGENT_GRPC_PORT") or os.environ.get("PORT")
+        if not port:
+            port = str(cli_config.DEFAULT_AGENT_GRPC_PORT)
+        return f"{host}:{port}"
+    return None
+
+
 def run(args):
     # 0. Prepare SSL certificates.
-    ensure_certs(PROJECT_ROOT / "certs")
+    cert_dir = Path(os.environ.get("ESB_CERT_DIR", str(cli_config.DEFAULT_CERT_DIR))).expanduser()
+    ensure_certs(cert_dir)
 
     # Load .env.test (same as run_tests.py).
     env_file = PROJECT_ROOT / "tests" / ".env.test"
@@ -62,19 +110,34 @@ def run(args):
         except Exception as e:
             logging.warning(f"Failed to load generator.yml for environment injection: {e}")
 
+    if runtime_mode.get_mode() == cli_config.ESB_MODE_FIRECRACKER:
+        if _should_override_agent_address(os.environ.get("AGENT_GRPC_ADDRESS")):
+            resolved = _resolve_firecracker_agent_address()
+            if resolved:
+                os.environ["AGENT_GRPC_ADDRESS"] = resolved
+                logging.info(
+                    f"Firecracker mode: using AGENT_GRPC_ADDRESS={logging.highlight(resolved)}"
+                )
+            else:
+                logging.warning(
+                    "Firecracker mode requires AGENT_GRPC_ADDRESS. "
+                    "Set it manually or run `esb node add` to populate nodes.yaml."
+                )
+
     # 2. Run build if requested.
     if getattr(args, "build", False):
         build.run(args)
 
     # 2. Start services.
     logging.step("Starting services...")
-    cmd = ["docker", "compose", "up"]
+    compose_args = ["up"]
     if getattr(args, "detach", True):
-        cmd.append("-d")
+        compose_args.append("-d")
 
     # Rebuild services themselves.
     if getattr(args, "build", False):
-        cmd.append("--build")
+        compose_args.append("--build")
+    cmd = cli_compose.build_compose_command(compose_args, target="control")
 
     try:
         subprocess.check_call(cmd)

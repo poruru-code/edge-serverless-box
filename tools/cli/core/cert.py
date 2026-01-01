@@ -15,6 +15,33 @@ logger = logging.getLogger(__name__)
 SSL_CERT_VALIDITY_DAYS = 365
 SSL_CA_VALIDITY_DAYS = 3650
 SSL_KEY_SIZE = 4096
+WG_GATEWAY_IP = "10.99.0.1"
+
+
+def _required_sans() -> tuple[set[str], set[str]]:
+    required_dns = {
+        "localhost",
+        "esb-registry",
+        "esb-gateway",
+        "host.docker.internal",
+    }
+    required_ips = {
+        "127.0.0.1",
+        WG_GATEWAY_IP,
+    }
+    return required_dns, required_ips
+
+
+def _cert_has_required_sans(cert: x509.Certificate) -> bool:
+    try:
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        return False
+
+    dns_names = {name.lower() for name in san.get_values_for_type(x509.DNSName)}
+    ip_names = {str(ip) for ip in san.get_values_for_type(x509.IPAddress)}
+    required_dns, required_ips = _required_sans()
+    return required_dns.issubset(dns_names) and required_ips.issubset(ip_names)
 
 
 def get_local_ip() -> str:
@@ -100,8 +127,14 @@ def generate_server_cert(cert_dir: Path, ca_key_path: Path, ca_cert_path: Path):
         server_cert_mtime = server_cert_file.stat().st_mtime
         ca_cert_mtime = ca_cert_path.stat().st_mtime
         if server_cert_mtime > ca_cert_mtime:
-            logger.debug("Using existing server certificate")
-            return server_cert_file, server_key_file
+            try:
+                existing_cert = x509.load_pem_x509_certificate(server_cert_file.read_bytes())
+            except Exception:
+                existing_cert = None
+            if existing_cert and _cert_has_required_sans(existing_cert):
+                logger.debug("Using existing server certificate")
+                return server_cert_file, server_key_file
+            logger.info("Existing server certificate missing required SANs; regenerating.")
 
     logger.info("Generating Server Certificate signed by Private CA...")
 
@@ -128,6 +161,7 @@ def generate_server_cert(cert_dir: Path, ca_key_path: Path, ca_cert_path: Path):
         x509.DNSName("esb-gateway"),
         x509.DNSName("host.docker.internal"),
         x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+        x509.IPAddress(ipaddress.IPv4Address(WG_GATEWAY_IP)),
     ]
 
     if local_ip != "127.0.0.1":

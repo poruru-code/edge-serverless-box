@@ -1,3 +1,8 @@
+<!--
+Where: docs/firecracker-roadmap.md
+What: Firecracker migration roadmap and design milestones.
+Why: Keep Phase C scope and sequencing aligned across the team.
+-->
 # Firecracker 導入ロードマップ（Phase B 実装を起点に Phase C へ）
 
 ## 目的とスコープ
@@ -13,19 +18,22 @@
 
 ### 構成の要点
 - **runtime-node 内で containerd + runc + CNI** を実行（CNI bridge `10.88.0.0/16`）。
-- **gateway/agent は runtime-node の NetNS を共有**（`network_mode: service:runtime-node`）。
+- **agent/local-proxy は runtime-node の NetNS を共有**し、gateway は Control 側の独立コンテナで起動する。
 - **agent は PIDNS を共有**し、`/proc/<pid>/ns/net` を使って CNI add/del を行う。
   - 参照する PID は **containerd task/shim の実行 PID**。
-- **runtime-node が 443/50051 を外部公開**（service:netns の制約のため ports は runtime-node に集約）。
+- **gateway が 443 を外部公開**し、runtime-node が 50051 を公開する。
 - **registry / s3-storage / database / victorialogs** は external_network 上で稼働。
 - **DNAT により `10.88.0.1` 互換を維持**（S3/Dynamo/VictoriaLogs）。
   - PREROUTING を基本、runtime-node 内から叩く場合のみ OUTPUT を併用。
   - OUTPUT の場合は **SNAT(MASQUERADE) を必須**。
   - registry は TLS/SAN の都合で **DNAT 対象外**（`esb-registry:5010` を直接使用）。
+  - Compute からは WG 経由で `10.99.0.1:5010` に集約し、gateway 内 HAProxy で `esb-registry:5010` へ転送する。
 - **sitecustomize による boto3 hook / trace 伝播 / logs** は現状維持。
 - **Gateway は gRPC Agent を常時利用**（切替フラグは廃止）。
 
-### Phase B 構成図（現実装準拠）
+### Phase B 構成図（旧構成の参考）
+
+※ 現行の compose は gateway を Control 側に分離しているため、以下の図は旧構成の参考として扱う。
 
 ```mermaid
 flowchart LR
@@ -142,7 +150,8 @@ flowchart LR
   Client["Client / SDK"] -->|HTTPS :443| Gateway
 
   subgraph ControlPlane["Control Plane (WSL/Docker)"]
-    Gateway["gateway\n:443\nwg0 (tunnel)"]
+    Gateway["gateway<br>:443<br>wg0 (tunnel)<br>10.99.0.1"]
+    LocalProxy["local-proxy (HAProxy)<br>:9000/:8001/:9428<br>(listen on 10.99.0.1)"]
     Registry["esb-registry:5010"]
     S3["s3-storage:9000/9001"]
     DB["database:8001"]
@@ -150,40 +159,46 @@ flowchart LR
   end
 
   subgraph ComputePlane["Compute Plane (Hyper-V VM / Linux)"]
-    ComputeHost["compute host\nwg0 + ip_forward"]
+    ComputeHost["compute host<br>wg0 + ip_forward"]
     subgraph RuntimeNS["runtime-node NetNS (shared)"]
-      RuntimeNode["runtime-node (privileged)\nfirecracker-containerd + shim\nCNI bridge 10.88.0.0/16"]
-      Agent["agent\nnetns+pidns=runtime-node\n:50051"]
-      LocalProxy["local-proxy (HAProxy)\n:9000/:8001/:9428"]
-      TaskNS["VM task netns\n/proc/<pid>/ns/net"]
-      subgraph VM["microVM worker(s)<br>CNI IP 10.88.x.x\n:8080"]
+      RuntimeNode["runtime-node (privileged)<br>firecracker-containerd + shim<br>CNI bridge 10.88.0.0/16"]
+      Agent["agent<br>control & invoke API<br>:50051"]
+      TaskNS["VM network sandbox netns<br>CNI/jailer netns"]
+      subgraph VM["microVM worker(s)<br>CNI IP 10.88.x.x"]
         direction TB
-        Supervisor["Runtime Supervisor<br>(Runtime API compatible)\n:8080"]
-        Function["Lambda function process\n(Python/Node/etc)"]
+        Supervisor["Runtime Supervisor<br>Runtime API compatible<br>:8080"]
+        Function["Lambda function process<br>(Python/Node/etc)"]
         Supervisor --> Function
       end
-      FcStore[["FC assets\nkernel/rootfs/snapshots"]]
+      FcStore[["FC assets<br>kernel/rootfs/snapshots"]]
 
       Agent -->|Create/Start VM task| VM
+      Agent -->|Invoke request| Supervisor
       Agent -->|CNI add/del| TaskNS
-      TaskNS -->|Net attached\nIP assigned| VM
+      TaskNS -->|Net attached<br>IP assigned| VM
       RuntimeNode --- FcStore
-      Function -->|SDK calls / Logs\nDNAT 10.88.0.1:*| LocalProxy
     end
   end
 
-  Gateway <-->|gRPC| Agent
-  Gateway -->|"Invoke (L7 proxy)"| Agent
-  Agent -->|Invoke proxy\nHTTP :8080| Supervisor
+  %% Control <-> Compute
+  Gateway <-->|"WireGuard wg0<br>routes from AllowedIPs<br>10.88.&lt;n&gt;.0/24 and 10.99.0.&lt;n&gt;/32 per node"| ComputeHost
+  ComputeHost -->|"route to 10.88.x.x"| RuntimeNode
 
-  Gateway <-->|"WireGuard (wg0)"| ComputeHost
-  ComputeHost -->|"route 10.88.x.x"| RuntimeNode
-  Gateway -.->|"Invoke (future)<br>worker.ip:8080"| Supervisor
+  %% Invoke path (control-plane correct)
+  Gateway -->|"Invoke API<br>(L7)"| Agent
 
-  Agent -->|Pull images / rootfs| Registry
-  LocalProxy -->|TCP| Victoria
+  %% Return + control-plane access via WG (DNAT-less)
+  Function -->|"Lambda->Gateway<br>GATEWAY_INTERNAL_URL<br>https://10.99.0.1:443"| Gateway
+  Function -->|"SDK calls / Logs<br>10.99.0.1:9000/8001/9428"| LocalProxy
+
+  %% Proxy to services by name (no DNAT)
   LocalProxy -->|TCP| S3
   LocalProxy -->|TCP| DB
+  LocalProxy -->|TCP| Victoria
+
+  %% Images
+  Agent -->|Pull images / rootfs| Registry
+
 ```
 
 ※補足: Phase C の CNI add/del は **「VM 内部に IP を直接付与」ではなく、tap/bridge が netns に接続される**ことを指す。VM 内の IP 付与は別管理（DHCP/静的）である前提。
@@ -214,9 +229,9 @@ flowchart LR
 ## Phase C 切り替え運用（現行との共存）
 
 - 基本は **Phase B の構成を維持**し、Firecracker 検証は compose override で切り替える。
-- 例: `COMPOSE_FILE=docker-compose.yml:docker-compose.fc.yml docker compose up -d`
-- `docker-compose.fc.yml` で `CONTAINERD_RUNTIME=aws.firecracker` を指定し、containerd の runtime のみを差し替える。
-- runtime-node 側は `CONTAINERD_BIN=/usr/local/bin/firecracker-containerd` と `CONTAINERD_CONFIG=/etc/firecracker-containerd/config.toml` を指定して切り替える。
+- 例（Control）: `docker compose -f docker-compose.yml up -d`
+- 例（Compute）: `docker compose -f docker-compose.node.yml up -d`
+- runtime-node/agent の Firecracker 設定は `docker-compose.node.yml` に集約する。
 
 ---
 
@@ -231,7 +246,14 @@ flowchart LR
 - runtime-node へ firecracker-containerd / shim / firecracker / jailer と runtime 設定を導入。
 - `ctr` で firecracker runtime による起動が通ることを確認。
   - `/etc/containerd/firecracker-runtime.json` を使用（kernel/rootfs は `/var/lib/firecracker-containerd/runtime`）
+  - `/etc/firecracker-containerd/config.toml` は runtime-node イメージに同梱（`services/runtime-node/firecracker-containerd.toml`）。
+    `pool_name` / `root_path` / `base_image_size` は `DEVMAPPER_*` と整合させる。
   - Compute Node 側は `esb node provision` でバイナリ・設定・kernel/rootfs・devmapper を準備する。
+  - `esb node provision` は `esb-storage.service`（oneshot）を配置し、起動時に devmapper pool を復元してから containerd/docker を起動する。
+  - Docker を自分でインストールする場合は **storage driver を overlay2 に固定**する（`/etc/docker/daemon.json`）。
+  - devmapper の thin-pool は **再初期化しない**（既存 pool がある状態で `dmsetup reload/create` を繰り返すと `different pool cannot replace a pool` が発生する）。
+    その場合は Compute Node で `dmsetup remove_all` と `losetup -D` を実行してから `runtime-node` を再起動する。
+  - `esb node provision` は pool 既存時に reload を行わず、再初期化を避ける。
   - `esb node doctor` で `cmd_firecracker` / `fc_kernel` / `devmapper_pool` が OK になっていることを確認する。
   - `firecracker-containerd` を起動し、`firecracker-ctr` で起動確認を行う。
   - **C-1 完了確認（実測ログ）**

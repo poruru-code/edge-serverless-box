@@ -1,7 +1,12 @@
+<!--
+Where: docs/spec.md
+What: System specification and deployment overview.
+Why: Provide a stable reference for ESB components and deployment models.
+-->
 # システム仕様書
 
 ## 1. 概要
-本システムは、コンテナ技術(Docker / containerd)を用いてエッジサーバーレス環境をシミュレートするための基盤です。開発時はホストOS上の `docker-compose.yml`、検証/本番では DinD (Docker-in-Docker) 構成の `docker-compose.dind.yml` を利用し、Gateway、ストレージ、データベース、Lambda実行環境を集約します。
+本システムは、コンテナ技術(Docker / containerd)を用いてエッジサーバーレス環境をシミュレートするための基盤です。単一ホストの containerd 構成は `docker-compose.yml` + `docker-compose.node.yml` + `docker-compose.containerd.yml` を組み合わせ、Firecracker 分離構成では Control (`docker-compose.yml`) / Compute (`docker-compose.node.yml`) に分けて起動します。
 
 ## 2. コンポーネント構成
 
@@ -11,7 +16,7 @@
 flowchart TD
     User["Client / Developer"]
     
-    subgraph Host ["Host OS / DinD Parent Container"]
+    subgraph Host ["Host OS"]
         Gateway["Gateway API<br>(:443)"]
         Agent["Go Agent (gRPC)<br>(:50051)"]
         RustFS["RustFS S3<br>(:9000)"]
@@ -103,37 +108,61 @@ services/gateway/
 
 ## 3. ネットワーク仕様
 
-Gateway と Go Agent は `network_mode: host` で起動し、その他のサービスはポートをホストに公開します。
+Gateway は external_network 上で起動し、443 をホストに公開します。Agent は runtime-node の NetNS を共有し、runtime-node が 50051 を公開します。
+分離構成では 50051（runtime-node/agent）は Compute 側に存在します。
 
 | サービス名     | コンテナ内ポート | ホスト公開ポート | URL                     | プロトコル          |
 | -------------- | ---------------- | ---------------- | ----------------------- | ------------------- |
 | Gateway API    | 443              | 443              | `https://localhost:443` | HTTPS               |
-| Agent gRPC     | 50051            | 50051            | `grpc://localhost:50051` | gRPC               |
+| Agent gRPC     | 50051            | 50051            | `grpc://<compute-host>:50051` | gRPC               |
 | RustFS API     | 9000             | 9000             | `http://localhost:9000` | HTTP                |
 | RustFS Console | 9001             | 9001             | `http://localhost:9001` | HTTP                |
 | ScyllaDB       | 8000             | 8001             | `http://localhost:8001` | HTTP (DynamoDB API) |
 | VictoriaLogs   | 9428             | 9428             | `http://localhost:9428` | HTTP                |
 
+補足:
+- 単一ノード構成では `docker-compose.containerd.yml` が runtime-node を external_network に参加させ、Gateway から `runtime-node:50051` で接続できます。
+- 分離構成では Compute 側の 50051 を `AGENT_GRPC_ADDRESS` で指定します（例: `10.99.0.x:50051`）。
+
 ## 4. データ永続化
 
-開発環境 (`docker-compose.yml`) では **named volume** を使用し、DinD 環境ではホストディレクトリをマウントします。
+単一ノード構成/分離構成とも **named volume** を使用します。DinD 向けの bind mount 構成は現行の compose には含めていません。
 
-- **開発環境 (named volume)**:
+- **named volume**:
     - `rustfs_data` -> RustFSデータ
     - `scylladb_data` -> ScyllaDBデータ
     - `victorialogs_data` -> ログデータ
     - `registry_data` -> レジストリデータ
-- **DinD環境 (bind mount)**:
-    - `./data` -> `/app/data` (親コンテナ) -> 子コンテナへ引き継ぎ
-    - `./logs` -> `/logs`
 
 ## 5. デプロイメントモデル
 
-### 5.1 開発環境 (Docker Compose)
-`docker-compose.yml` を使用して、ホストOS上で直接サービス群を起動します。
-- ボリューム: named volume を使用
+### 5.1 Compose ファイル構成
 
-### 5.2 本番/検証環境 (DinD)
-`docker-compose.dind.yml` を使用して、親コンテナ(`esb-root`)を起動します。
-- 親コンテナが内部でさらに `docker-compose.yml` を使用して子コンテナ群を起動します。
-- ホストの `./data` は親コンテナの `/app/data` にマウントされ、子コンテナに引き継がれます。
+| ファイル | 役割 | 主な用途 |
+| --- | --- | --- |
+| `docker-compose.yml` | Control/Core（Gateway + 依存サービス） | Control Plane（単一ノード/分離構成の共通） |
+| `docker-compose.node.yml` | Compute（runtime-node/agent/local-proxy） | Compute Node（Firecracker/remote） |
+| `docker-compose.containerd.yml` | Adapter（単一ノード結合） | Core + Compute を同一ホストで統合 |
+
+### 5.2 起動パターン（docker compose）
+
+単一ノード（containerd）:
+```bash
+docker compose -f docker-compose.yml \
+  -f docker-compose.node.yml \
+  -f docker-compose.containerd.yml up -d
+```
+
+Control/Compute 分離（Firecracker）:
+```bash
+# Control
+docker compose -f docker-compose.yml up -d
+
+# Compute
+docker compose -f docker-compose.node.yml up -d
+```
+
+注意:
+- `docker compose -f` は指定順に合成され、後のファイルが前の内容を上書きします。
+- パスは最初の `-f` のディレクトリ基準で解決されます（必要なら `--project-directory` を使用）。
+- `esb up` は `esb mode` に応じて同じ組み合わせを自動選択します。

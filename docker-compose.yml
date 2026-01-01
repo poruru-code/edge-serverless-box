@@ -1,8 +1,6 @@
 # Where: docker-compose.yml
-# What: Development compose for ESB services and wiring.
-# Why: Bootstraps the local stack with minimal host changes.
-#
-# Lambda functions start dynamically (on-demand start, idle stop).
+# What: Core control-plane services (Gateway + stateful dependencies).
+# Why: Provide the shared control stack for both single-node and multi-node setups.
 
 services:
   # ============================================
@@ -76,8 +74,6 @@ services:
       external_network: {}
       internal_network: {}
 
-  # Fluent Bit is deprecated. Logs are sent directly from each service to VictoriaLogs.
-
   # ============================================
   # Container Registry (Local)
   # ============================================
@@ -102,8 +98,8 @@ services:
       start_period: 5s
     restart: unless-stopped
     networks:
-      - external_network # Host access
-      - internal_network # For agent (used during Step 1 containerd migration)
+      - external_network
+      - internal_network
 
   # ============================================
   # VictoriaLogs
@@ -130,55 +126,6 @@ services:
       internal_network: {}
 
   # ============================================
-  # Runtime Node (containerd + DNAT)
-  # ============================================
-  runtime-node:
-    build:
-      context: services/runtime-node
-      dockerfile: Dockerfile
-    container_name: esb-runtime-node
-    privileged: true
-    ports:
-      - "50051:50051"
-    volumes:
-      - runtime_containerd_run:/run/containerd
-      - runtime_containerd_lib:/var/lib/containerd
-      - esb_cni_data:/var/lib/cni
-    environment:
-      - CNI_GW_IP=10.88.0.1
-      - DNAT_S3_IP=127.0.0.1
-      - DNAT_DB_IP=127.0.0.1
-      - DNAT_VL_IP=127.0.0.1
-      - DNAT_DB_PORT=8001
-      - WG_CONTROL_NET=${WG_CONTROL_NET:-}
-      - WG_CONTROL_GW=${WG_CONTROL_GW:-}
-      - WG_CONTROL_GW_HOST=${WG_CONTROL_GW_HOST:-gateway}
-      - DNAT_APPLY_OUTPUT=1
-    healthcheck:
-      test: ["CMD", "ctr", "-a", "/run/containerd/containerd.sock", "version"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    restart: unless-stopped
-    networks:
-      - external_network
-
-  # ============================================
-  # Local Proxy (HAProxy for DNAT targets)
-  # ============================================
-  local-proxy:
-    image: haproxy:2.8-alpine
-    container_name: esb-local-proxy
-    network_mode: "service:runtime-node"
-    volumes:
-      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    depends_on:
-      runtime-node:
-        condition: service_started
-    restart: unless-stopped
-
-  # ============================================
   # API Gateway (Facade)
   # ============================================
   gateway:
@@ -199,6 +146,7 @@ services:
       - ${GATEWAY_FUNCTIONS_YML:-./config/functions.yml}:/app/config/functions.yml:ro
       - ${GATEWAY_ROUTING_YML:-./config/routing.yml}:/app/config/routing.yml:ro
       - ${ESB_WG_GATEWAY_CONF:-~/.esb/wireguard/gateway/wg0.conf}:/app/config/wireguard/wg0.conf:ro
+      - ./config/haproxy.gateway.cfg:/app/config/haproxy.gateway.cfg:ro
     environment:
       - UVICORN_BIND_ADDR=0.0.0.0:443
       - ENABLE_SSL=true
@@ -210,7 +158,10 @@ services:
       - AUTH_PASS=${AUTH_PASS?AUTH_PASS is required}
       - CONTAINERS_NETWORK=${LAMBDA_NETWORK?LAMBDA_NETWORK is required}
       - GATEWAY_INTERNAL_URL=${GATEWAY_INTERNAL_URL:-https://10.99.0.1:443}  # Lambda containers -> Gateway via WG
-      - AGENT_GRPC_ADDRESS=runtime-node:50051
+      - GATEWAY_WORKER_ROUTE_VIA_HOST=${GATEWAY_WORKER_ROUTE_VIA_HOST:-}
+      - GATEWAY_WORKER_ROUTE_VIA=${GATEWAY_WORKER_ROUTE_VIA:-}
+      - GATEWAY_WORKER_ROUTE_CIDR=${GATEWAY_WORKER_ROUTE_CIDR:-10.88.0.0/16}
+      - AGENT_GRPC_ADDRESS=${AGENT_GRPC_ADDRESS:-runtime-node:50051}
       - AGENT_INVOKE_PROXY=${AGENT_INVOKE_PROXY:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY?RUSTFS_ACCESS_KEY is required}
@@ -233,10 +184,6 @@ services:
     networks:
       - external_network
     depends_on:
-      runtime-node:
-        condition: service_healthy
-      agent:
-        condition: service_started
       database:
         condition: service_healthy
       s3-storage:
@@ -245,49 +192,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ============================================
-  # Go Agent (Replacement for Orchestrator)
-  # ============================================
-  agent:
-    image: esb-agent:latest
-    build:
-      context: services/agent
-      dockerfile: Dockerfile
-    container_name: esb-agent
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-    pid: "container:esb-runtime-node"
-    # runtime-node NetNS: Agent listens on :50051
-    network_mode: "service:runtime-node"
-    volumes:
-      - runtime_containerd_run:/run/containerd  # Required for socket, fifo, and shim access
-      - runtime_containerd_lib:/var/lib/containerd  # Required for snapshot access
-      - ./services/agent/config/cni:/etc/cni/net.d:ro
-      - esb_cni_data:/var/lib/cni
-      - ${ESB_CERT_DIR:-~/.esb/certs}/rootCA.crt:/usr/local/share/ca-certificates/esb-rootCA.crt:ro
-    environment:
-      - AGENT_RUNTIME=containerd  # Use containerd with runtime-node netns strategy
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - PORT=50051
-      - CONTAINER_REGISTRY=esb-registry:5010  # TLS SAN matches esb-registry
-    depends_on:
-      runtime-node:
-        condition: service_healthy
-      registry:
-        condition: service_healthy
-    command: >
-      sh -c "update-ca-certificates && /app/agent"
-    restart: unless-stopped
-
 volumes:
   scylladb_data:
   rustfs_data:
   victorialogs_data:
   registry_data:
-  runtime_containerd_run:
-  runtime_containerd_lib:
-  esb_cni_data:
 
 
 networks:

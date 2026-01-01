@@ -32,6 +32,7 @@ WORKDIR /app
 
 # WireGuard (userspace) + routing tools for gateway-side tunnel
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    haproxy \
     iproute2 \
     wireguard-go \
     wireguard-tools \

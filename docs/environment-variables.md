@@ -1,3 +1,8 @@
+<!--
+Where: docs/environment-variables.md
+What: Environment variable reference for ESB components.
+Why: Provide a single source of truth for runtime configuration.
+-->
 # 環境変数一覧
 
 ## 概要
@@ -47,7 +52,7 @@ cp .env.example .env
 | `LAMBDA_NETWORK` | Lambda コンテナが接続する内部ネットワーク名 | `onpre-internal-network` | Gateway, Go Agent, docker-compose |
 | `EXTERNAL_NETWORK` | 外部公開用ネットワーク名 | `onpre-external` | docker-compose |
 | `CONTAINERS_NETWORK` | Gateway が管理するコンテナのネットワーク（`LAMBDA_NETWORK` と同義） | `onpre-internal-network` | Gateway |
-| `GATEWAY_INTERNAL_URL` | Lambda コンテナから見た Gateway の URL（WG 経由: `https://10.99.0.1:443`） | `https://10.99.0.1:443` | Gateway |
+| `GATEWAY_INTERNAL_URL` | Lambda コンテナから見た Gateway の URL（既定は WG 経由: `https://10.99.0.1:443`。WG を使わない場合は worker から到達できる URL に上書き） | `https://10.99.0.1:443` | Gateway |
 
 ---
 
@@ -68,8 +73,11 @@ cp .env.example .env
 | 変数名 | デフォルト値 | 説明 | 使用コンポーネント |
 |--------|--------------|------|--------------------|
 | `LOG_LEVEL` | `INFO` | ログレベル (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | 全コンポーネント |
-| `VICTORIALOGS_URL` | `""` | VictoriaLogs の取り込みURL | Gateway |
+| `VICTORIALOGS_URL` | `""` | VictoriaLogs の取り込みURL（`docker-compose.yml` では `http://victorialogs:9428` を既定指定） | Gateway |
 | `GATEWAY_VICTORIALOGS_URL` | `""` | Gateway 送信先のVictoriaLogs URL（未設定なら `VICTORIALOGS_URL`/`VICTORIALOGS_HOST` を使用） | Gateway |
+| `VICTORIALOGS_HOST` | `victorialogs` | VictoriaLogs のホスト名（URL未設定時のfallback） | Gateway |
+| `DISABLE_VICTORIALOGS` | `""` | `1/true/yes/on` で Gateway の VictoriaLogs 送信を無効化 | Gateway |
+| `LOG_CONFIG_PATH` | `/app/config/gateway_log.yaml` | Gateway ログ設定ファイルのパス | Gateway |
 
 ### Gateway 設定
 
@@ -82,6 +90,9 @@ cp .env.example .env
 | `ENABLE_SSL` | `true` | SSL/TLS を有効化 |
 | `SSL_CERT_PATH` | `/app/config/ssl/server.crt` | SSL証明書パス |
 | `SSL_KEY_PATH` | `/app/config/ssl/server.key` | SSL秘密鍵パス |
+| `GATEWAY_WORKER_ROUTE_VIA_HOST` | `""` | worker サブネットの経路を指定ホスト経由に上書き（例: `runtime-node`） |
+| `GATEWAY_WORKER_ROUTE_VIA` | `""` | worker サブネットの経路を指定IP経由に上書き（`..._HOST` より優先） |
+| `GATEWAY_WORKER_ROUTE_CIDR` | `10.88.0.0/16` | worker 経路上書きの対象CIDR（`AllowedIPs` からこの範囲のみ適用） |
 
 ### Lambda 関数設定
 
@@ -118,15 +129,17 @@ cp .env.example .env
 
 | 変数名 | デフォルト値 | 説明 |
 |--------|--------------|------|
-| `AGENT_GRPC_ADDRESS` | `esb-agent:50051` | Go Agent の gRPC アドレス（`docker-compose.yml` では `runtime-node:50051`） |
+| `AGENT_GRPC_ADDRESS` | `esb-agent:50051` | Go Agent の gRPC アドレス（コード既定は `esb-agent:50051`。`docker-compose.yml` では `runtime-node:50051` を設定し、Firecracker 分離では `10.99.0.x:50051` を指定） |
 | `AGENT_INVOKE_PROXY` | `false` | Gateway が worker invoke を Agent 経由（L7 代理）で行うか |
 | `AGENT_RUNTIME` | `docker` | Agent のランタイム (`docker` または `containerd`) |
 | `CONTAINERD_RUNTIME` | `""` | containerd の runtime 名（`AGENT_RUNTIME=containerd` のとき有効。未指定ならデフォルト。例: `aws.firecracker`） |
+| `CONTAINERD_SNAPSHOTTER` | `""` | containerd の snapshotter 名。未指定時は `CONTAINERD_RUNTIME=aws.firecracker` なら `devmapper`、それ以外は `overlayfs` |
 | `PORT` | `50051` | Go Agent の gRPC ポート |
 | `CONTAINER_REGISTRY` | `""` | 取得/プッシュ先のコンテナレジストリ。設定時は `{registry}/{function_name}:latest` を使用 |
 | `CNI_CONF_DIR` | `/etc/cni/net.d` | containerd 用 CNI 設定ディレクトリ |
 | `CNI_CONF_FILE` | `/etc/cni/net.d/10-esb.conflist` | containerd 用 CNI 設定ファイル |
 | `CNI_BIN_DIR` | `/opt/cni/bin` | containerd 用 CNI バイナリディレクトリ |
+| `CNI_SUBNET` | `""` | CNI のIP割り当て範囲。設定時は `CNI_CONF_FILE` の範囲をこのCIDRに制限し、`10.88.0.1` 互換は維持 |
 
 ### runtime-node (DNAT) 設定
 
@@ -147,8 +160,22 @@ cp .env.example .env
 
 | 変数名 | デフォルト値 | 説明 | 使用コンポーネント |
 |--------|--------------|------|--------------------|
-| `CONTAINERD_BIN` | `containerd` | 起動する containerd バイナリ（例: `/usr/local/bin/firecracker-containerd`） | runtime-node |
-| `CONTAINERD_CONFIG` | `""` | containerd 設定ファイルパス（例: `/etc/firecracker-containerd/config.toml`） | runtime-node |
+| `CONTAINERD_BIN` | `containerd` | 起動する containerd バイナリ（`docker-compose.node.yml` では `/usr/local/bin/firecracker-containerd`） | runtime-node |
+| `CONTAINERD_CONFIG` | `""` | containerd 設定ファイルパス（`docker-compose.node.yml` では `/etc/firecracker-containerd/config.toml`） | runtime-node |
+
+### runtime-node (devmapper) 設定
+
+| 変数名 | デフォルト値 | 説明 | 使用コンポーネント |
+|--------|--------------|------|--------------------|
+| `DEVMAPPER_POOL` | `""` | devmapper の thin-pool 名。Firecracker では `fc-dev-pool2` を想定 | runtime-node |
+| `DEVMAPPER_DIR` | `/var/lib/containerd/devmapper2` | devmapper の backing ファイル配置先 | runtime-node |
+| `DEVMAPPER_DATA_SIZE` | `10G` | devmapper data-device サイズ（loopback 作成時） | runtime-node |
+| `DEVMAPPER_META_SIZE` | `2G` | devmapper meta-device サイズ（loopback 作成時） | runtime-node |
+| `DEVMAPPER_UDEV` | `0` | `1` で udev を利用。コンテナ環境では `0` 推奨（dmsetup mknodes で補完） | runtime-node |
+
+補足:
+- `DEVMAPPER_POOL` / `DEVMAPPER_DIR` / `DEVMAPPER_DATA_SIZE` は `/etc/firecracker-containerd/config.toml` の
+  `pool_name` / `root_path` / `base_image_size` と整合させる必要がある。
 
 ### ストレージ設定
 
@@ -171,8 +198,9 @@ cp .env.example .env
 | `ESB_WG_GATEWAY_CONF` | `~/.esb/wireguard/gateway/wg0.conf` | Gateway コンテナにマウントする WireGuard 設定ファイル | docker-compose |
 | `ESB_WG_COMPUTE_CONF` | `~/.esb/wireguard/compute/wg0.conf` | `esb node provision` が転送する Compute 側 WireGuard 設定ファイル | tools/cli |
 | `ESB_WG_MTU` | `1420` | WireGuard インターフェースの MTU。WSL/Hyper-V で TLS が不安定なら `1340` 前後に下げる | tools/cli |
-| `RUNTIME_NODE_IP` | `172.20.0.10` | Compute VM 上の runtime-node 固定IP（WireGuard ルートの next-hop） | docker-compose.fc.yml |
-| `RUNTIME_NET_SUBNET` | `172.20.0.0/16` | Compute VM 上の runtime-node 専用 bridge サブネット | docker-compose.fc.yml |
+| `ESB_CONTROL_HOST` | `""` | Compute Node から見た Control のホスト/IP（registry/s3/db/logs/gateway の解決先） | docker-compose.node.yml |
+| `RUNTIME_NODE_IP` | `172.20.0.10` | Compute VM 上の runtime-node 固定IP（WireGuard ルートの next-hop） | docker-compose.node.yml |
+| `RUNTIME_NET_SUBNET` | `172.20.0.0/16` | Compute VM 上の runtime-node 専用 bridge サブネット | docker-compose.node.yml |
 
 ### その他
 
@@ -203,6 +231,9 @@ cp .env.example .env
 - `LAMBDA_INVOKE_TIMEOUT`
 - `CIRCUIT_BREAKER_THRESHOLD`
 - `CIRCUIT_BREAKER_RECOVERY_TIMEOUT`
+- `GATEWAY_WORKER_ROUTE_VIA_HOST`
+- `GATEWAY_WORKER_ROUTE_VIA`
+- `GATEWAY_WORKER_ROUTE_CIDR`
 - Auto-Scaling 関連変数
 
 ### Go Agent (services/agent)
@@ -219,6 +250,7 @@ cp .env.example .env
 - `CNI_CONF_DIR`
 - `CNI_CONF_FILE`
 - `CNI_BIN_DIR`
+- `CNI_SUBNET`
 
 ### RustFS (S3 互換ストレージ)
 

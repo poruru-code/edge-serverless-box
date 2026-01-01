@@ -1,3 +1,6 @@
+// Where: services/agent/internal/runtime/containerd/image.go
+// What: Image pulling and unpacking helpers for the agent's containerd runtime.
+// Why: Ensure images are present and unpacked for the selected snapshotter.
 package containerd
 
 import (
@@ -19,8 +22,12 @@ const caCertPath = "/usr/local/share/ca-certificates/esb-rootCA.crt"
 
 // ensureImage checks if the image exists in the current namespace, and pulls it if not.
 func (r *Runtime) ensureImage(ctx context.Context, ref string) (containerd.Image, error) {
+	snapshotter := resolveSnapshotter()
 	img, err := r.client.GetImage(ctx, ref)
 	if err == nil {
+		if err := ensureImageUnpacked(ctx, img, snapshotter); err != nil {
+			return nil, err
+		}
 		return img, nil
 	}
 
@@ -34,13 +41,35 @@ func (r *Runtime) ensureImage(ctx context.Context, ref string) (containerd.Image
 
 	img, err = r.client.Pull(ctx, ref,
 		containerd.WithPullUnpack,
+		containerd.WithPullSnapshotter(snapshotter),
 		containerd.WithResolver(resolver),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull image %s: %w", ref, err)
 	}
 
+	if err := ensureImageUnpacked(ctx, img, snapshotter); err != nil {
+		return nil, err
+	}
+
 	return img, nil
+}
+
+func ensureImageUnpacked(ctx context.Context, img containerd.Image, snapshotter string) error {
+	if snapshotter == "" {
+		return nil
+	}
+	unpacked, err := img.IsUnpacked(ctx, snapshotter)
+	if err != nil {
+		return fmt.Errorf("failed to check unpack state (%s): %w", snapshotter, err)
+	}
+	if unpacked {
+		return nil
+	}
+	if err := img.Unpack(ctx, snapshotter); err != nil {
+		return fmt.Errorf("failed to unpack image for %s: %w", snapshotter, err)
+	}
+	return nil
 }
 
 // createTLSResolver creates a docker resolver with custom CA certificate

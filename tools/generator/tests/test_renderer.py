@@ -1,11 +1,15 @@
+# Where: tools/generator/tests/test_renderer.py
+# What: Unit tests for generator renderers.
+# Why: Keep Dockerfile and routing output stable.
 from tools.generator.renderer import render_dockerfile, render_functions_yml
 
 
 class TestDockerfileRenderer:
     """Tests for the Dockerfile renderer."""
 
-    def test_render_simple_dockerfile(self):
+    def test_render_simple_dockerfile(self, monkeypatch):
         """Generate a simple Dockerfile."""
+        monkeypatch.delenv("CONTAINER_REGISTRY", raising=False)
         func_config = {
             "name": "lambda-hello",
             "code_uri": "functions/hello/",

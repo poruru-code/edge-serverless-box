@@ -33,8 +33,11 @@ class TestCertGeneration:
         # Verify SAN.
         san = server_cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
         dns_names = san.get_values_for_type(x509.DNSName)
+        ip_addrs = san.get_values_for_type(x509.IPAddress)
+        ip_strings = {str(ip) for ip in ip_addrs}
         assert "localhost" in dns_names
         assert "esb-registry" in dns_names
+        assert "10.99.0.1" in ip_strings
 
     def test_ensure_certs_skips_ca_if_exists(self, cert_dir):
         """Test that an existing Root CA is not regenerated."""

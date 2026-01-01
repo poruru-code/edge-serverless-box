@@ -1,5 +1,9 @@
+# Where: tools/cli/commands/down.py
+# What: Stop ESB services and clean up resources.
+# Why: Provide a consistent shutdown path for the CLI.
 import subprocess
 from tools.cli.config import PROJECT_ROOT
+from tools.cli import compose as cli_compose
 from dotenv import load_dotenv
 from tools.cli.core import logging
 from importlib.metadata import metadata
@@ -12,11 +16,12 @@ def run(args):
         load_dotenv(env_file, override=False)
 
     logging.step("Stopping services...")
-    cmd = ["docker", "compose", "down", "--remove-orphans"]
+    compose_args = ["down", "--remove-orphans"]
     if getattr(args, "volumes", False):
-        cmd.append("--volumes")
+        compose_args.append("--volumes")
     if getattr(args, "rmi", False):
-        cmd.extend(["--rmi", "all"])
+        compose_args.extend(["--rmi", "all"])
+    cmd = cli_compose.build_compose_command(compose_args, target="control")
 
     try:
         subprocess.check_call(cmd)

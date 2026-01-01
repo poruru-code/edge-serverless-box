@@ -3,6 +3,15 @@ from pathlib import Path
 import pytest
 
 from tools.cli.commands.build import run, build_base_image, build_function_images
+from tools.cli import config as cli_config
+
+
+@pytest.fixture(autouse=True)
+def _force_containerd_mode(monkeypatch):
+    monkeypatch.setattr(
+        "tools.cli.commands.build.runtime_mode.get_mode",
+        lambda: cli_config.ESB_MODE_CONTAINERD,
+    )
 
 
 # ============================================================
@@ -143,6 +152,37 @@ def test_build_command_flow(mock_load_config, mock_generate_files, mock_build_ba
     mock_build_base.assert_called_once()
     mock_build_funcs.assert_called_once()
 
+
+@patch("tools.cli.commands.build.build_service_images.build_and_push", return_value=True)
+@patch("tools.cli.commands.build.build_function_images")
+@patch("tools.cli.commands.build.build_base_image")
+@patch("tools.cli.commands.build.generator.generate_files")
+@patch("tools.cli.commands.build.generator.load_config")
+def test_build_command_firecracker_builds_service_images(
+    mock_load_config,
+    mock_generate_files,
+    mock_build_base,
+    mock_build_funcs,
+    mock_build_services,
+    monkeypatch,
+):
+    """Build service images when running in firecracker mode."""
+    monkeypatch.setattr(
+        "tools.cli.commands.build.runtime_mode.get_mode",
+        lambda: cli_config.ESB_MODE_FIRECRACKER,
+    )
+    mock_load_config.return_value = {"app": {"name": "", "tag": "latest"}, "paths": {}}
+    mock_generate_files.return_value = [{"name": "test-func", "dockerfile_path": "/path/to/Dockerfile"}]
+    mock_build_base.return_value = True
+
+    args = MagicMock()
+    args.dry_run = False
+    args.verbose = False
+    args.no_cache = False
+
+    run(args)
+
+    mock_build_services.assert_called_once()
 
 @patch("tools.cli.commands.build.generator.generate_files")
 @patch("tools.cli.commands.build.generator.load_config")

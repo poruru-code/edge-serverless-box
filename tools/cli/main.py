@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Where: tools/cli/main.py
+# What: CLI entrypoint and argument dispatch.
+# Why: Provide a single command surface for ESB operations.
 import argparse
 import sys
 from pathlib import Path
@@ -8,10 +11,12 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
-from tools.cli.commands import build, up, watch, down, reset, init, logs, node  # noqa: E402
+from tools.cli.commands import build, up, watch, down, reset, init, logs, node, mode  # noqa: E402
 
 
 def main():
+    from tools.cli import config as cli_config
+
     parser = argparse.ArgumentParser(
         description="Edge Serverless Box CLI", formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -69,6 +74,15 @@ def main():
     logs_parser.add_argument("--follow", "-f", action="store_true", help="Follow log output")
     logs_parser.add_argument("--tail", type=int, default=None, help="Number of lines to show")
     logs_parser.add_argument("--timestamps", "-t", action="store_true", help="Show timestamps")
+
+    # --- mode command ---
+    mode_parser = subparsers.add_parser("mode", help="Manage runtime mode")
+    mode_subparsers = mode_parser.add_subparsers(
+        dest="mode_command", required=True, help="Mode subcommand"
+    )
+    mode_subparsers.add_parser("get", help="Show current runtime mode")
+    mode_set_parser = mode_subparsers.add_parser("set", help="Set runtime mode")
+    mode_set_parser.add_argument("mode", choices=cli_config.VALID_ESB_MODES)
 
     # --- node command ---
     node_parser = subparsers.add_parser("node", help="Manage compute nodes")
@@ -131,6 +145,32 @@ def main():
         "--strict",
         action="store_true",
         help="Exit with non-zero if any node fails",
+    )
+    node_doctor_parser.add_argument(
+        "--require-up",
+        action="store_true",
+        help="Fail if compute services are not running",
+    )
+    node_up_parser = node_subparsers.add_parser("up", help="Start compute node services")
+    node_up_parser.add_argument(
+        "--name",
+        help="Start a specific node by name",
+    )
+    node_up_parser.add_argument(
+        "--host",
+        help="Start a specific host (user@host supported)",
+    )
+    node_up_parser.add_argument("--user", help="Override SSH user")
+    node_up_parser.add_argument("--port", type=int, help="Override SSH port")
+    node_up_parser.add_argument(
+        "--identity-file",
+        help="SSH identity file (optional)",
+    )
+    node_up_parser.add_argument(
+        "--ssh-option",
+        action="append",
+        default=[],
+        help="Additional ssh -o options (repeatable)",
     )
     node_provision_parser = node_subparsers.add_parser(
         "provision", help="Provision compute node prerequisites"
@@ -276,6 +316,8 @@ def main():
             reset.run(args)
         elif args.command == "logs":
             logs.run(args)
+        elif args.command == "mode":
+            mode.run(args)
         elif args.command == "node":
             node.run(args)
     except KeyboardInterrupt:
