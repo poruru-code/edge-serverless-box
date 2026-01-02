@@ -61,6 +61,21 @@ def main():
     )
     args = parser.parse_args()
 
+    # --- Load Test Matrix (Needed for Profile Info) ---
+    import yaml
+
+    matrix_file = PROJECT_ROOT / "tests" / "test_matrix.yaml"
+    if not matrix_file.exists():
+        print(f"[ERROR] Matrix file not found: {matrix_file}")
+        sys.exit(1)
+
+    with open(matrix_file, "r") as f:
+        config_matrix = yaml.safe_load(f)
+
+    suites = config_matrix.get("suites", {})
+    profiles = config_matrix.get("profiles", {})
+    matrix = config_matrix.get("matrix", [])
+
     # --- Single Target Mode (Legacy/Debug) ---
     # --- Single Target Mode (Legacy/Debug) ---
     if args.test_target:
@@ -101,29 +116,12 @@ def main():
         if args.unit_only:
             sys.exit(0)
 
-    # --- Load Test Matrix (Needed for Profile Info) ---
-    import yaml
-
-    matrix_file = PROJECT_ROOT / "tests" / "test_matrix.yaml"
-    if not matrix_file.exists():
-        print(f"[ERROR] Matrix file not found: {matrix_file}")
-        sys.exit(1)
-
-    with open(matrix_file, "r") as f:
-        config_matrix = yaml.safe_load(f)
-
-    suites = config_matrix.get("suites", {})
-    profiles = config_matrix.get("profiles", {})
-    matrix = config_matrix.get("matrix", [])
-
     # Load Base Environment (Global)
     base_env_path = PROJECT_ROOT / "tests" / ".env.test"
     if base_env_path.exists():
         load_dotenv(base_env_path, override=False)
         print(f"Loaded base environment from: {base_env_path}")
     
-    # --- Test Matrix Execution ---
-
     print("\nStarting Full E2E Test Suite (Matrix-Based)\n")
     failed_entries = []
 
