@@ -59,14 +59,14 @@ class GrpcProvisionClient:
         # Inject AWS Endpoint URLs for service discovery
         dynamodb_endpoint = getattr(config, "DYNAMODB_ENDPOINT", "")
         if dynamodb_endpoint:
-            env["AWS_ENDPOINT_URL_DYNAMODB"] = dynamodb_endpoint
-            env["AWS_ENDPOINT_URL_DYNAMO"] = dynamodb_endpoint  # Non-standard but common fallback
-            env["DYNAMODB_ENDPOINT"] = dynamodb_endpoint        # Legacy support
+            env["AWS_ENDPOINT_URL_DYNAMODB"] = str(dynamodb_endpoint)
+            env["AWS_ENDPOINT_URL_DYNAMO"] = str(dynamodb_endpoint)  # Non-standard but common fallback
+            env["DYNAMODB_ENDPOINT"] = str(dynamodb_endpoint)        # Legacy support
 
         s3_endpoint = getattr(config, "S3_ENDPOINT", "")
         if s3_endpoint:
-            env["AWS_ENDPOINT_URL_S3"] = s3_endpoint
-            env["S3_ENDPOINT"] = s3_endpoint                    # Legacy support
+            env["AWS_ENDPOINT_URL_S3"] = str(s3_endpoint)
+            env["S3_ENDPOINT"] = str(s3_endpoint)                    # Legacy support
 
         # Inject CloudWatch Logs via VictoriaLogs
         if victorialogs_url:
@@ -87,13 +87,16 @@ class GrpcProvisionClient:
 
         try:
             resp = await self.stub.EnsureContainer(req)
+            import time
+
+            now = time.time()
             worker = WorkerInfo(
                 id=resp.id,
                 name=resp.name,
                 ip_address=resp.ip_address,
                 port=resp.port or 8080,
-                created_at=0.0,
-                last_used_at=0.0,
+                created_at=now,
+                last_used_at=now,
             )
 
             # Readiness Check: Wait for port 8080 to be available
