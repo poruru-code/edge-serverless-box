@@ -28,12 +28,20 @@ def ensure_registry_running(extra_files=None, project_name=None):
 
     try:
         import requests
+        from urllib3.exceptions import InsecureRequestWarning
+        # Suppress insecure request warnings for local registry checks
+        requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
-        # Registry health check.
-        response = requests.get(f"http://{registry}/v2/", timeout=2)
-        if response.status_code == 200:
-            logging.success(f"Registry ({registry}) is already running.")
-            return
+        # Try HTTPS first, then fallback to HTTP for health check.
+        urls = [f"https://{registry}/v2/", f"http://{registry}/v2/"]
+        for url in urls:
+            try:
+                response = requests.get(url, timeout=2, verify=False)
+                if response.status_code == 200:
+                    logging.success(f"Registry ({registry}) is already running (via {url.split(':')[0]}).")
+                    return
+            except Exception:
+                continue
     except Exception:
         pass  # Registry not running.
 
@@ -58,9 +66,15 @@ def ensure_registry_running(extra_files=None, project_name=None):
 
         for _ in range(10):
             try:
-                response = requests.get(f"http://{registry}/v2/", timeout=1)
-                if response.status_code == 200:
-                    return
+                # Try HTTPS first, then fallback to HTTP for health check.
+                urls = [f"https://{registry}/v2/", f"http://{registry}/v2/"]
+                for url in urls:
+                    try:
+                        response = requests.get(url, timeout=1, verify=False)
+                        if response.status_code == 200:
+                            return
+                    except Exception:
+                        continue
             except Exception:
                 pass
             time.sleep(0.5)
@@ -175,8 +189,6 @@ def build_function_images(functions, template_path, no_cache=False, verbose=Fals
                 raise
             else:
                 logging.error(f"Build failed for {image_tag}. Use --verbose for details.")
-                import sys
-
                 sys.exit(1)
 
         # Push to registry
@@ -274,8 +286,6 @@ def run(args):
     no_cache = getattr(args, "no_cache", False)
 
     if not build_base_image(no_cache=no_cache):
-        import sys
-
         sys.exit(1)
 
     # 3. Build Lambda function images.

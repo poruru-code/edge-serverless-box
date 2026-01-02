@@ -37,13 +37,17 @@ class GrpcProvisionClient:
         env["AWS_LAMBDA_FUNCTION_VERSION"] = "$LATEST"
         env["AWS_REGION"] = env.get("AWS_REGION", "ap-northeast-1")
 
-        victorialogs_url = getattr(config, "VICTORIALOGS_URL", "")
+        # Inject VictoriaLogs URL (use GATEWAY_VICTORIALOGS_URL for container-accessible address)
+        # GATEWAY_VICTORIALOGS_URL uses Docker DNS (e.g., victorialogs:9428)
+        # VICTORIALOGS_URL is for host access (e.g., localhost:14028)
+        import os
+        gateway_victorialogs_url = os.environ.get("GATEWAY_VICTORIALOGS_URL", "")
+        victorialogs_url = gateway_victorialogs_url or getattr(config, "VICTORIALOGS_URL", "")
         if isinstance(victorialogs_url, str) and victorialogs_url:
             env["VICTORIALOGS_URL"] = victorialogs_url
 
-        # Inject LOG_LEVEL for sitecustomize.py logging filter
-        import os
 
+        # Inject LOG_LEVEL for sitecustomize.py logging filter
         log_level = os.environ.get("LOG_LEVEL", "INFO")
         env["LOG_LEVEL"] = log_level
 
@@ -51,6 +55,22 @@ class GrpcProvisionClient:
         gateway_internal_url = getattr(config, "GATEWAY_INTERNAL_URL", "")
         if isinstance(gateway_internal_url, str) and gateway_internal_url:
             env["GATEWAY_INTERNAL_URL"] = gateway_internal_url
+
+        # Inject AWS Endpoint URLs for service discovery
+        dynamodb_endpoint = getattr(config, "DYNAMODB_ENDPOINT", "")
+        if dynamodb_endpoint:
+            env["AWS_ENDPOINT_URL_DYNAMODB"] = dynamodb_endpoint
+            env["AWS_ENDPOINT_URL_DYNAMO"] = dynamodb_endpoint  # Non-standard but common fallback
+            env["DYNAMODB_ENDPOINT"] = dynamodb_endpoint        # Legacy support
+
+        s3_endpoint = getattr(config, "S3_ENDPOINT", "")
+        if s3_endpoint:
+            env["AWS_ENDPOINT_URL_S3"] = s3_endpoint
+            env["S3_ENDPOINT"] = s3_endpoint                    # Legacy support
+
+        # Inject CloudWatch Logs via VictoriaLogs
+        if victorialogs_url:
+            env["AWS_ENDPOINT_URL_CLOUDWATCH_LOGS"] = victorialogs_url
 
         # Inject Timeout & Memory from config
         if func_config:

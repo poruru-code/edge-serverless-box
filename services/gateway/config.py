@@ -50,6 +50,10 @@ class GatewayConfig(BaseAppConfig):
     GATEWAY_INTERNAL_URL: str = Field(..., description="Gateway URL from containers")
     LAMBDA_INVOKE_TIMEOUT: float = Field(default=30.0, description="Lambda invoke timeout (seconds)")
 
+    # Data store endpoints for injection into Lambda
+    DYNAMODB_ENDPOINT: str = Field(default="", description="Internal DynamoDB endpoint")
+    S3_ENDPOINT: str = Field(default="", description="Internal S3 endpoint")
+
     # Flow control (Phase 4-1)
     MAX_CONCURRENT_REQUESTS: int = Field(default=10, description="Max concurrent per function")
     QUEUE_TIMEOUT_SECONDS: int = Field(default=10, description="Queue wait timeout")

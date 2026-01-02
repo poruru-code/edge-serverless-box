@@ -61,6 +61,20 @@ def main():
 
     args = parser.parse_args()
 
+    # --- Single Target Mode (Legacy/Debug) ---
+    if args.test_target:
+        default_env = "tests/environments/.env.standard"
+        user_scenario = {
+            "name": "User-Specified",
+            "env_file": args.env_file if args.env_file != "tests/environments/.env.standard" else default_env,
+            "targets": [args.test_target],
+            "exclude": [],
+        }
+        # If the user provides an env file that implies a mode, we might miss it.
+        # But usually single target debug runs on current mode.
+        run_scenario(args, user_scenario)
+        sys.exit(0)
+
     # --- Unit Tests ---
     if args.unit or args.unit_only:
         os.environ["DISABLE_VICTORIALOGS"] = "1"
@@ -75,72 +89,88 @@ def main():
         if args.unit_only:
             sys.exit(0)
 
-    # --- Scenarios Definition ---
-    # Scenario definition: consolidate on Auto-Scaling (PoolManager) after removing Legacy Mode.
-    SCENARIOS = [
-        {
-            "name": "Auto-Scaling",
-            "env_file": "tests/environments/.env.autoscaling",
-            "targets": [
-                "tests/scenarios/autoscaling/",
-                "tests/scenarios/standard/",
-            ],
-            "exclude": [],
-        },
-        {
-            "name": "Auto-Scaling (Containerd)",
-            "env_file": "tests/environments/.env.containerd",
-            "runtime_mode": "containerd",
-            "targets": [
-                "tests/scenarios/autoscaling/",
-                "tests/scenarios/standard/",
-            ],
-            "exclude": [],
-        },
-    ]
+    # Load Base Environment (Global)
+    base_env_path = PROJECT_ROOT / "tests" / ".env.test"
+    if base_env_path.exists():
+        load_dotenv(base_env_path, override=False)
+        print(f"Loaded base environment from: {base_env_path}")
 
-    # If target specified via CLI, run a single target (legacy compatible).
-    if args.test_target:
-        # User specified target, simple run
-        # env_file defaults need update if user doesn't specify
-        # Should we look in environments/? Default to .env.standard in environments/
-        default_env = "tests/environments/.env.standard"
+    # --- Test Matrix Execution ---
+    import yaml
 
-        user_scenario = {
-            "name": "User-Specified",
-            "env_file": args.env_file
-            if args.env_file != "tests/environments/.env.standard"
-            else default_env,
-            # Note: parser default is "tests/.env.test", we should update parser default too or handle here.
-            "targets": [args.test_target],
-            "exclude": [],
-        }
-        run_scenario(args, user_scenario)
-        sys.exit(0)
-
-    # Run all scenarios.
-    print("\nStarting Full E2E Test Suite (Scenario-Based)\n")
-    failed_scenarios = []
-
-    for scenario in SCENARIOS:
-        print(f"\n[Scenario] Running: {scenario['name']}")
-        try:
-            run_scenario(args, scenario)
-        except SystemExit as e:
-            if e.code != 0:
-                print(f"\n[FAILED] Scenario '{scenario['name']}' FAILED.")
-                failed_scenarios.append(scenario["name"])
-            else:
-                print(f"\n[PASSED] Scenario '{scenario['name']}' PASSED.")
-        except Exception as e:
-            print(f"\n[FAILED] Scenario '{scenario['name']}' FAILED with exception: {e}")
-            failed_scenarios.append(scenario["name"])
-
-    if failed_scenarios:
-        print(f"\n[FAILED] The following scenarios failed: {', '.join(failed_scenarios)}")
+    matrix_file = PROJECT_ROOT / "tests" / "test_matrix.yaml"
+    if not matrix_file.exists():
+        print(f"[ERROR] Matrix file not found: {matrix_file}")
         sys.exit(1)
 
-    print("\n[PASSED] ALL SCENARIOS PASSED!")
+    with open(matrix_file, "r") as f:
+        config_matrix = yaml.safe_load(f)
+
+    suites = config_matrix.get("suites", {})
+    profiles = config_matrix.get("profiles", {})
+    matrix = config_matrix.get("matrix", [])
+
+    print("\nStarting Full E2E Test Suite (Matrix-Based)\n")
+    failed_entries = []
+
+    base_esb_env = os.environ.get("ESB_ENV", "e2e")
+    print(f"DEBUG: base_esb_env resolved to: {base_esb_env}")
+
+    for entry in matrix:
+        suite_name = entry["suite"]
+        profile_names = entry["profiles"]
+
+        if suite_name not in suites:
+            print(f"[ERROR] Suite '{suite_name}' not defined in suites.")
+            continue
+
+        suite_def = suites[suite_name]
+        
+        for profile_name in profile_names:
+            if profile_name not in profiles:
+                print(f"[ERROR] Profile '{profile_name}' not defined in profiles.")
+                continue
+
+            profile_def = profiles[profile_name]
+            
+            # Construct Scenario Object for compatibility with run_scenario
+            # Dynamic ESB_ENV Calculation
+            # 1. Default (Local): "e2e" -> Use profile name directly (e.g. "ctr_autoscaling")
+            # 2. CI/Specific: "run123" -> Prefix profile name (e.g. "run123-ctr_autoscaling")
+            if base_esb_env == "e2e":
+                target_env = profile_name
+            else:
+                target_env = f"{base_esb_env}-{profile_name}"
+            
+            scenario = {
+                "name": f"{suite_name} on {profile_name}",
+                "env_file": profile_def.get("env_file"),
+                "runtime_mode": profile_def.get("mode"),
+                "esb_env": target_env,
+                "targets": suite_def.get("targets", []),
+                "exclude": suite_def.get("exclude", []),
+            }
+
+            print(f"\n[Matrix] Running Suite: '{suite_name}' on Profile: '{profile_name}'")
+            print(f"         > Environment: {target_env}")
+            
+            try:
+                run_scenario(args, scenario)
+            except SystemExit as e:
+                if e.code != 0:
+                    print(f"\n[FAILED] {scenario['name']} FAILED.")
+                    failed_entries.append(scenario["name"])
+                else:
+                    print(f"\n[PASSED] {scenario['name']} PASSED.")
+            except Exception as e:
+                print(f"\n[FAILED] {scenario['name']} FAILED with exception: {e}")
+                failed_entries.append(scenario["name"])
+
+    if failed_entries:
+        print(f"\n[FAILED] The following matrix entries failed: {', '.join(failed_entries)}")
+        sys.exit(1)
+
+    print("\n[PASSED] ALL MATRIX ENTRIES PASSED!")
     sys.exit(0)
 
 
@@ -177,7 +207,9 @@ def run_scenario(args, scenario):
 
     # Environment Isolation Logic
     from tools.cli import config as cli_config
-    env_name = os.environ.get("ESB_ENV", "default")
+    
+    # Use scenario-specific ESB_ENV (Matrix) or fallback to process env (Legacy)
+    env_name = scenario.get("esb_env", os.environ.get("ESB_ENV", "default"))
     env["ESB_ENV"] = env_name
     
     # Calculate ports and subnets to inject into pytest environment
